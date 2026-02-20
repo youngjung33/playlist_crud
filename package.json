@@ -1,0 +1,10 @@
+{
+  "name": "playlist_crud",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "test": "npm run test --workspace=apps/web",
+    "test:watch": "npm run test:watch --workspace=apps/web"
+  },
+  "workspaces": ["apps/web"]
+}
