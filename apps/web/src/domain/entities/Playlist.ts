@@ -21,6 +21,9 @@ export function createPlaylist(input: PlaylistInput): Playlist {
   if (!name) {
     throw new Error('Playlist must have a non-empty name');
   }
+  if (input.tracks === null || (input.tracks != null && !Array.isArray(input.tracks))) {
+    throw new Error('tracks must be an array');
+  }
   const rawTracks = Array.isArray(input.tracks) ? input.tracks : [];
   const tracks = rawTracks.map((t, i) => {
     if (isTrack(t) && t.title.trim() !== '' && t.artist.trim() !== '') return t;

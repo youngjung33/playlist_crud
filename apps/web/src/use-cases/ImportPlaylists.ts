@@ -36,8 +36,8 @@ export class ImportPlaylistsUseCase {
         playlists.push(createPlaylist({
           id: (raw as { id?: string }).id,
           name,
-          tracks: Array.isArray((raw as { tracks?: unknown }).tracks) ? (raw as { tracks: unknown[] }).tracks : [],
-        }));
+          tracks: (raw as { tracks?: unknown }).tracks,
+        } as { id?: string; name: string; tracks?: unknown }));
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
         return { ok: false, error: `Playlist at index ${i}: ${message}` };
