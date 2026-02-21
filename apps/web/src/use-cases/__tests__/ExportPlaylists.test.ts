@@ -1,4 +1,5 @@
 import { ExportPlaylistsUseCase } from '../ExportPlaylists';
+import { createPlaylist } from '../../domain/entities/Playlist';
 
 describe('ExportPlaylistsUseCase (실패 케이스)', () => {
   const useCase = new ExportPlaylistsUseCase();
@@ -864,5 +865,211 @@ describe('ExportPlaylistsUseCase (실패 케이스)', () => {
       format: 'jsonc ' as 'json',
     });
     expect(result.ok).toBe(false);
+  });
+
+  it('format이 "json-schema"이면 ok: false', async () => {
+    const result = await useCase.run({
+      playlists: [],
+      format: 'json-schema' as 'json',
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain('json-schema');
+  });
+
+  it('format이 "bson"이면 ok: false', async () => {
+    const result = await useCase.run({
+      playlists: [],
+      format: 'bson' as 'json',
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it('format이 "json-api"이면 ok: false', async () => {
+    const result = await useCase.run({
+      playlists: [],
+      format: 'json-api' as 'json',
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it('format이 3.14 (소수)이면 ok: false', async () => {
+    const result = await useCase.run({
+      playlists: [],
+      format: 3.14 as unknown as 'json',
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it('input이 Int8Array면 ok: false', async () => {
+    const result = await useCase.run(new Int8Array(0) as unknown as Parameters<ExportPlaylistsUseCase['run']>[0]);
+    expect(result.ok).toBe(false);
+  });
+
+  it('format이 "jsonl " (공백)이면 ok: false', async () => {
+    const result = await useCase.run({
+      playlists: [],
+      format: 'jsonl ' as 'json',
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it('format이 "cson"이면 ok: false', async () => {
+    const result = await useCase.run({
+      playlists: [],
+      format: 'cson' as 'json',
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain('cson');
+  });
+
+  it('format이 "json-ld"이면 ok: false', async () => {
+    const result = await useCase.run({
+      playlists: [],
+      format: 'json-ld' as 'json',
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it('input이 async 함수면 ok: false', async () => {
+    const result = await useCase.run((async () => {}) as unknown as Parameters<ExportPlaylistsUseCase['run']>[0]);
+    expect(result.ok).toBe(false);
+  });
+
+  it('format이 "json " (앞 공백 없이 뒤만)이면 ok: false', async () => {
+    const result = await useCase.run({
+      playlists: [],
+      format: 'json ' as 'json',
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it('playlists가 WeakSet이면 ok: false', async () => {
+    const result = await useCase.run({
+      playlists: new WeakSet() as unknown as [],
+      format: 'json',
+    });
+    expect(result.ok).toBe(false);
+  });
+});
+
+describe('ExportPlaylistsUseCase (성공 케이스)', () => {
+  const useCase = new ExportPlaylistsUseCase();
+
+  it('playlists 빈 배열, format json → ok: true, contentType application/json', async () => {
+    const result = await useCase.run({ playlists: [], format: 'json' });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.contentType).toBe('application/json');
+      expect(result.content).toMatch(/^\[\s*\]/);
+    }
+  });
+
+  it('playlists 1개 트랙 0개, format json → ok: true, content에 name 포함', async () => {
+    const pl = createPlaylist({ name: 'My List', tracks: [] });
+    const result = await useCase.run({ playlists: [pl], format: 'json' });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.contentType).toBe('application/json');
+      expect(result.content).toContain('My List');
+    }
+  });
+
+  it('playlists 1개 트랙 1개, format json → ok: true, content에 title·artist 포함', async () => {
+    const pl = createPlaylist({
+      name: 'Rock',
+      tracks: [{ title: 'Song', artist: 'Band' }],
+    });
+    const result = await useCase.run({ playlists: [pl], format: 'json' });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.content).toContain('Song');
+      expect(result.content).toContain('Band');
+    }
+  });
+
+  it('playlists 빈 배열, format csv → ok: true, 헤더만 한 줄', async () => {
+    const result = await useCase.run({ playlists: [], format: 'csv' });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.contentType).toBe('text/csv');
+      expect(result.content).toBe('name,title,artist,album,position');
+    }
+  });
+
+  it('playlists 1개 트랙 1개, format csv → ok: true, 헤더+데이터 한 줄', async () => {
+    const pl = createPlaylist({
+      name: 'A',
+      tracks: [{ title: 'T', artist: 'Ar' }],
+    });
+    const result = await useCase.run({ playlists: [pl], format: 'csv' });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.contentType).toBe('text/csv');
+      expect(result.content).toContain('name,title,artist,album,position');
+      expect(result.content).toContain('A');
+      expect(result.content).toContain('T');
+      expect(result.content).toContain('Ar');
+    }
+  });
+
+  it('플레이리스트 2개 트랙 여러 개, format csv → ok: true, 여러 행', async () => {
+    const pl1 = createPlaylist({
+      name: 'P1',
+      tracks: [
+        { title: 'T1', artist: 'A1' },
+        { title: 'T2', artist: 'A2' },
+      ],
+    });
+    const pl2 = createPlaylist({ name: 'P2', tracks: [] });
+    const result = await useCase.run({
+      playlists: [pl1, pl2],
+      format: 'csv',
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const lines = result.content.split('\n');
+      expect(lines[0]).toBe('name,title,artist,album,position');
+      expect(lines).toHaveLength(3);
+    }
+  });
+
+  it('playlists 2개, format json → ok: true, content에 두 플레이리스트 모두 포함', async () => {
+    const pl1 = createPlaylist({ name: 'J1', tracks: [{ title: 'S1', artist: 'Ar1' }] });
+    const pl2 = createPlaylist({ name: 'J2', tracks: [] });
+    const result = await useCase.run({
+      playlists: [pl1, pl2],
+      format: 'json',
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.content).toContain('J1');
+      expect(result.content).toContain('J2');
+      expect(result.content).toContain('S1');
+    }
+  });
+
+  it('CSV에서 name에 쉼표 있으면 이스케이프되어 출력', async () => {
+    const pl = createPlaylist({
+      name: 'Hello, World',
+      tracks: [{ title: 'T', artist: 'A' }],
+    });
+    const result = await useCase.run({ playlists: [pl], format: 'csv' });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.content).toContain('"Hello, World"');
+    }
+  });
+
+  it('트랙에 album 있으면 JSON·CSV 모두 내보내기 성공', async () => {
+    const pl = createPlaylist({
+      name: 'N',
+      tracks: [{ title: 'T', artist: 'A', album: 'My Album' }],
+    });
+    const jsonResult = await useCase.run({ playlists: [pl], format: 'json' });
+    const csvResult = await useCase.run({ playlists: [pl], format: 'csv' });
+    expect(jsonResult.ok).toBe(true);
+    expect(csvResult.ok).toBe(true);
+    if (jsonResult.ok) expect(jsonResult.content).toContain('My Album');
+    if (csvResult.ok) expect(csvResult.content).toContain('My Album');
   });
 });

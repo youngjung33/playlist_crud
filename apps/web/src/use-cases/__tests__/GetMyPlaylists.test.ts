@@ -1,5 +1,7 @@
 import { GetMyPlaylistsUseCase } from '../GetMyPlaylists';
 import type { IPlaylistRepository } from '../../domain/repositories/PlaylistRepository';
+import { InMemoryPlaylistRepository } from '../../adapters/InMemoryPlaylistRepository';
+import { ImportPlaylistsUseCase } from '../ImportPlaylists';
 
 describe('GetMyPlaylistsUseCase (실패 케이스)', () => {
   it('리포지토리에서 예외가 나면 ok: false, error 반환', async () => {
@@ -555,5 +557,143 @@ describe('GetMyPlaylistsUseCase (실패 케이스)', () => {
     const result = await useCase.run();
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBe('');
+  });
+
+  it('리포지토리 findAll이 reject(1e5)하면 error에 100000', async () => {
+    const rejectingRepo: IPlaylistRepository = {
+      save: async () => {},
+      findAll: () => Promise.reject(1e5),
+      clear: async () => {},
+    };
+    const useCase = new GetMyPlaylistsUseCase(rejectingRepo);
+    const result = await useCase.run();
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toBe('100000');
+  });
+
+  it('리포지토리가 빈 문자열을 throw하면 error에 빈 문자열', async () => {
+    const throwingRepo: IPlaylistRepository = {
+      save: async () => {},
+      findAll: async () => {
+        throw '';
+      },
+      clear: async () => {},
+    };
+    const useCase = new GetMyPlaylistsUseCase(throwingRepo);
+    const result = await useCase.run();
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toBe('');
+  });
+
+  it('리포지토리 findAll이 reject(Uint8Array)하면 ok: false', async () => {
+    const rejectingRepo: IPlaylistRepository = {
+      save: async () => {},
+      findAll: () => Promise.reject(new Uint8Array(0)),
+      clear: async () => {},
+    };
+    const useCase = new GetMyPlaylistsUseCase(rejectingRepo);
+    const result = await useCase.run();
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(typeof result.error).toBe('string');
+  });
+
+  it('리포지토리 findAll이 reject(-Infinity)하면 error에 -Infinity', async () => {
+    const rejectingRepo: IPlaylistRepository = {
+      save: async () => {},
+      findAll: () => Promise.reject(-Infinity),
+      clear: async () => {},
+    };
+    const useCase = new GetMyPlaylistsUseCase(rejectingRepo);
+    const result = await useCase.run();
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toBe('-Infinity');
+  });
+
+  it('리포지토리가 0을 throw하면 error에 0', async () => {
+    const throwingRepo: IPlaylistRepository = {
+      save: async () => {},
+      findAll: async () => {
+        throw 0;
+      },
+      clear: async () => {},
+    };
+    const useCase = new GetMyPlaylistsUseCase(throwingRepo);
+    const result = await useCase.run();
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toBe('0');
+  });
+
+  it('리포지토리 findAll이 reject(Int32Array)하면 ok: false', async () => {
+    const rejectingRepo: IPlaylistRepository = {
+      save: async () => {},
+      findAll: () => Promise.reject(new Int32Array(0)),
+      clear: async () => {},
+    };
+    const useCase = new GetMyPlaylistsUseCase(rejectingRepo);
+    const result = await useCase.run();
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(typeof result.error).toBe('string');
+  });
+});
+
+describe('GetMyPlaylistsUseCase (성공 케이스)', () => {
+  const repo = new InMemoryPlaylistRepository();
+  const useCase = new GetMyPlaylistsUseCase(repo);
+
+  beforeEach(async () => {
+    await repo.clear();
+  });
+
+  it('저장소가 비어 있으면 ok: true, playlists 빈 배열', async () => {
+    const result = await useCase.run();
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.playlists).toEqual([]);
+  });
+
+  it('저장소에 1개 있으면 ok: true, playlists 길이 1', async () => {
+    const importUseCase = new ImportPlaylistsUseCase(repo);
+    await importUseCase.run([{ name: 'Only', tracks: [] }]);
+    const result = await useCase.run();
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.playlists).toHaveLength(1);
+      expect(result.playlists[0].name).toBe('Only');
+      expect(result.playlists[0].tracks).toHaveLength(0);
+    }
+  });
+
+  it('저장소에 여러 개 있으면 ok: true, playlists 순서·내용 일치', async () => {
+    const importUseCase = new ImportPlaylistsUseCase(repo);
+    await importUseCase.run([
+      { name: 'First', tracks: [{ title: 'A', artist: 'X' }] },
+      { name: 'Second', tracks: [] },
+    ]);
+    const result = await useCase.run();
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.playlists).toHaveLength(2);
+      expect(result.playlists[0].name).toBe('First');
+      expect(result.playlists[0].tracks[0].title).toBe('A');
+      expect(result.playlists[1].name).toBe('Second');
+    }
+  });
+
+  it('저장소에 트랙 여러 개인 플레이리스트 있으면 ok: true, tracks 길이 일치', async () => {
+    const importUseCase = new ImportPlaylistsUseCase(repo);
+    await importUseCase.run([
+      {
+        name: 'Multi',
+        tracks: [
+          { title: 'T1', artist: 'A1' },
+          { title: 'T2', artist: 'A2' },
+        ],
+      },
+    ]);
+    const result = await useCase.run();
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.playlists[0].tracks).toHaveLength(2);
+      expect(result.playlists[0].tracks[1].title).toBe('T2');
+    }
   });
 });

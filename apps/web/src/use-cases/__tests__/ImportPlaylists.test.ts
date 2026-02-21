@@ -1,4 +1,5 @@
 import { ImportPlaylistsUseCase } from '../ImportPlaylists';
+import { GetMyPlaylistsUseCase } from '../GetMyPlaylists';
 import { InMemoryPlaylistRepository } from '../../adapters/InMemoryPlaylistRepository';
 
 describe('ImportPlaylistsUseCase (실패 케이스)', () => {
@@ -1166,5 +1167,211 @@ describe('ImportPlaylistsUseCase (실패 케이스)', () => {
     ] as unknown);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toMatch(/index 0|array/);
+  });
+
+  it('input이 2e2 (200)면 ok: false', async () => {
+    const result = await useCase.run(2e2 as unknown);
+    expect(result.ok).toBe(false);
+  });
+
+  it('트랙에 title이 Float32Array면 ok: false', async () => {
+    const result = await useCase.run([
+      { name: 'P', tracks: [{ title: new Float32Array(0) as unknown, artist: 'A' }] },
+    ] as unknown);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/title|index/);
+  });
+
+  it('열세 번째 플레이리스트(index 12)에서 tracks가 숫자면 error에 index 12', async () => {
+    const result = await useCase.run([
+      ...Array(12).fill(null).map((_, i) => ({ name: `M${i}`, tracks: [] as unknown[] })),
+      { name: 'N', tracks: 42 },
+    ] as unknown);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain('index 12');
+  });
+
+  it('input이 JSON 문자열 "[1,2,3]"이면 배열 아니므로 ok: false', async () => {
+    const result = await useCase.run('[1,2,3]' as unknown);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain('array');
+  });
+
+  it('트랙 5개 중 4번째에 title 없으면 ok: false', async () => {
+    const result = await useCase.run([
+      {
+        name: 'P',
+        tracks: [
+          { title: 'T1', artist: 'A1' },
+          { title: 'T2', artist: 'A2' },
+          { title: 'T3', artist: 'A3' },
+          { artist: 'A4' },
+          { title: 'T5', artist: 'A5' },
+        ],
+      },
+    ] as unknown);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/index 0|title/);
+  });
+
+  it('tracks가 Int32Array면 ok: false', async () => {
+    const result = await useCase.run([
+      { name: 'P', tracks: new Int32Array(0) },
+    ] as unknown);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/index 0|array/);
+  });
+
+  it('input이 0.5 (소수)면 ok: false', async () => {
+    const result = await useCase.run(0.5 as unknown);
+    expect(result.ok).toBe(false);
+  });
+
+  it('트랙에 artist가 Float64Array면 ok: false', async () => {
+    const result = await useCase.run([
+      { name: 'P', tracks: [{ title: 'T', artist: new Float64Array(0) as unknown }] },
+    ] as unknown);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/artist|index/);
+  });
+
+  it('열네 번째 플레이리스트(index 13)에서 name 공백만이면 error에 index 13', async () => {
+    const result = await useCase.run([
+      ...Array(13).fill(null).map((_, i) => ({ name: `Q${i}`, tracks: [] as unknown[] })),
+      { name: '  ', tracks: [] },
+    ] as unknown);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain('index 13');
+  });
+
+  it('input이 일반 객체 new Object()면 ok: false', async () => {
+    const result = await useCase.run(new Object() as unknown);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain('array');
+  });
+
+  it('트랙 2개 중 첫 번째 title 빈 문자열이면 ok: false', async () => {
+    const result = await useCase.run([
+      {
+        name: 'P',
+        tracks: [
+          { title: '', artist: 'A1' },
+          { title: 'T2', artist: 'A2' },
+        ],
+      },
+    ] as unknown);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/index 0|title/);
+  });
+
+  it('input이 1e0 (1)이면 ok: false', async () => {
+    const result = await useCase.run(1e0 as unknown);
+    expect(result.ok).toBe(false);
+  });
+});
+
+describe('ImportPlaylistsUseCase (성공 케이스)', () => {
+  const repo = new InMemoryPlaylistRepository();
+  const useCase = new ImportPlaylistsUseCase(repo);
+
+  beforeEach(async () => {
+    await repo.clear();
+  });
+
+  it('빈 배열 입력 시 ok: true, count 0', async () => {
+    const result = await useCase.run([]);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.count).toBe(0);
+  });
+
+  it('플레이리스트 1개 트랙 0개 입력 시 ok: true, count 1', async () => {
+    const result = await useCase.run([{ name: 'My List', tracks: [] }]);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.count).toBe(1);
+  });
+
+  it('플레이리스트 1개 트랙 1개 입력 시 ok: true, count 1', async () => {
+    const result = await useCase.run([
+      { name: 'Rock', tracks: [{ title: 'Song', artist: 'Band' }] },
+    ]);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.count).toBe(1);
+  });
+
+  it('플레이리스트 2개 입력 시 ok: true, count 2', async () => {
+    const result = await useCase.run([
+      { name: 'A', tracks: [] },
+      { name: 'B', tracks: [{ title: 'T', artist: 'Ar' }] },
+    ]);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.count).toBe(2);
+  });
+
+  it('저장 후 GetMyPlaylists로 조회 시 동일한 데이터 반환', async () => {
+    const getUseCase = new GetMyPlaylistsUseCase(repo);
+    await useCase.run([
+      { name: 'Saved', tracks: [{ title: 'Hit', artist: 'Star' }] },
+    ]);
+    const getResult = await getUseCase.run();
+    expect(getResult.ok).toBe(true);
+    if (getResult.ok) {
+      expect(getResult.playlists).toHaveLength(1);
+      expect(getResult.playlists[0].name).toBe('Saved');
+      expect(getResult.playlists[0].tracks).toHaveLength(1);
+      expect(getResult.playlists[0].tracks[0].title).toBe('Hit');
+      expect(getResult.playlists[0].tracks[0].artist).toBe('Star');
+    }
+  });
+
+  it('id가 있으면 저장 후 조회 시 해당 id 유지', async () => {
+    const getUseCase = new GetMyPlaylistsUseCase(repo);
+    await useCase.run([
+      { id: 'custom-id-1', name: 'Named', tracks: [] },
+    ]);
+    const getResult = await getUseCase.run();
+    expect(getResult.ok).toBe(true);
+    if (getResult.ok) expect(getResult.playlists[0].id).toBe('custom-id-1');
+  });
+
+  it('name 앞뒤 공백은 trim 되어 저장', async () => {
+    const getUseCase = new GetMyPlaylistsUseCase(repo);
+    await useCase.run([{ name: '  Trimmed  ', tracks: [] }]);
+    const getResult = await getUseCase.run();
+    expect(getResult.ok).toBe(true);
+    if (getResult.ok) expect(getResult.playlists[0].name).toBe('Trimmed');
+  });
+
+  it('플레이리스트 1개에 트랙 여러 개 입력 시 ok: true, count 1', async () => {
+    const result = await useCase.run([
+      {
+        name: 'Many',
+        tracks: [
+          { title: 'T1', artist: 'A1' },
+          { title: 'T2', artist: 'A2' },
+          { title: 'T3', artist: 'A3' },
+        ],
+      },
+    ]);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.count).toBe(1);
+  });
+
+  it('트랙에 album, position 있으면 저장 후 조회 시 유지', async () => {
+    const getUseCase = new GetMyPlaylistsUseCase(repo);
+    await useCase.run([
+      {
+        name: 'WithMeta',
+        tracks: [
+          { title: 'S', artist: 'Ar', album: 'Album One', position: 1 },
+        ],
+      },
+    ]);
+    const getResult = await getUseCase.run();
+    expect(getResult.ok).toBe(true);
+    if (getResult.ok) {
+      const t = getResult.playlists[0].tracks[0];
+      expect(t.album).toBe('Album One');
+      expect(t.position).toBe(1);
+    }
   });
 });
