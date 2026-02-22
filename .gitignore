@@ -34,6 +34,7 @@ coverage/
 
 # Data (로컬 데이터 디렉터리)
 data/
+playlists.json
 
 # Optional
 plan.md
