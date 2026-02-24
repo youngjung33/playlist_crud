@@ -1,7 +1,6 @@
-import { GetMyPlaylistsUseCase } from '../GetMyPlaylists';
-import type { IPlaylistRepository } from '../../domain/repositories/PlaylistRepository';
-import { InMemoryPlaylistRepository } from '../../adapters/InMemoryPlaylistRepository';
-import { ImportPlaylistsUseCase } from '../ImportPlaylists';
+import { GetMyPlaylistsUseCase, ImportPlaylistsUseCase } from '../../src';
+import type { IPlaylistRepository } from '../../src';
+import { InMemoryPlaylistRepository } from '../helpers/InMemoryPlaylistRepository';
 
 describe('GetMyPlaylistsUseCase (실패 케이스)', () => {
   it('리포지토리에서 예외가 나면 ok: false, error 반환', async () => {

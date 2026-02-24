@@ -1,6 +1,5 @@
-import { ImportPlaylistsUseCase } from '../ImportPlaylists';
-import { GetMyPlaylistsUseCase } from '../GetMyPlaylists';
-import { InMemoryPlaylistRepository } from '../../adapters/InMemoryPlaylistRepository';
+﻿import { ImportPlaylistsUseCase, GetMyPlaylistsUseCase } from '../../src';
+import { InMemoryPlaylistRepository } from '../helpers/InMemoryPlaylistRepository';
 
 describe('ImportPlaylistsUseCase (실패 케이스)', () => {
   const repo = new InMemoryPlaylistRepository();
@@ -1375,3 +1374,4 @@ describe('ImportPlaylistsUseCase (성공 케이스)', () => {
     }
   });
 });
+

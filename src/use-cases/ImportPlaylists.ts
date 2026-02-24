@@ -33,11 +33,12 @@ export class ImportPlaylistsUseCase {
         if (!name) {
           return { ok: false, error: `Playlist at index ${i} must have a non-empty name` };
         }
+        const rawTracks = (raw as { tracks?: unknown }).tracks;
         playlists.push(createPlaylist({
           id: (raw as { id?: string }).id,
           name,
-          tracks: (raw as { tracks?: unknown }).tracks,
-        } as { id?: string; name: string; tracks?: unknown }));
+          tracks: Array.isArray(rawTracks) ? (rawTracks as Array<Record<string, unknown>>) : rawTracks as undefined,
+        }));
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
         return { ok: false, error: `Playlist at index ${i}: ${message}` };

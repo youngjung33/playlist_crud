@@ -1,5 +1,4 @@
-import { ExportPlaylistsUseCase } from '../ExportPlaylists';
-import { createPlaylist } from '../../domain/entities/Playlist';
+﻿import { ExportPlaylistsUseCase, createPlaylist } from '../../src';
 
 describe('ExportPlaylistsUseCase (실패 케이스)', () => {
   const useCase = new ExportPlaylistsUseCase();
@@ -1073,3 +1072,4 @@ describe('ExportPlaylistsUseCase (성공 케이스)', () => {
     if (csvResult.ok) expect(csvResult.content).toContain('My Album');
   });
 });
+
