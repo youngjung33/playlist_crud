@@ -19,3 +19,4 @@ export type { ExportPlaylistsResult, ExportPlaylistsInput, ExportFormat } from '
 
 // Adapters
 export { MelonAdapter } from './adapters/MelonAdapter';
+export { FilePlaylistRepository } from './adapters/FilePlaylistRepository';

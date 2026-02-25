@@ -9,9 +9,9 @@ YouTube Music 어댑터 (IMusicService의 Python 구현체)
   2. py -3 -m ytmusicapi browser  → browser.json 생성 (이 파일과 같은 폴더)
 
 실행 (프로젝트 루트에서):
-  py -3 apps/web/src/adapters/YouTubeMusicAdapter.py
-  py -3 apps/web/src/adapters/YouTubeMusicAdapter.py --playlist "플레이리스트 이름"
-  py -3 apps/web/src/adapters/YouTubeMusicAdapter.py --dry-run
+  py -3 src/adapters/YouTubeMusicAdapter.py
+  py -3 src/adapters/YouTubeMusicAdapter.py --playlist "플레이리스트 이름"
+  py -3 src/adapters/YouTubeMusicAdapter.py --dry-run
 """
 
 import json
