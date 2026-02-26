@@ -2,57 +2,72 @@
 
 import { useState, useEffect, useCallback } from 'react';
 
-interface Playlist {
+interface PlaylistSummary {
   id: string;
   name: string;
   song_count: number;
 }
 
-interface MigrateStatus {
-  state: 'idle' | 'running' | 'done' | 'error';
-  message: string;
-}
-
-const SERVICE_OPTIONS = [
-  { id: 'melon', label: 'Melon', icon: '🎶', available: true },
-  { id: 'spotify', label: 'Spotify', icon: '🟢', available: false },
-  { id: 'apple', label: 'Apple Music', icon: '🍎', available: false },
-];
-
-const TARGET_OPTIONS = [
-  { id: 'ytmusic', label: 'YouTube Music', icon: '▶️', available: true },
-  { id: 'spotify', label: 'Spotify', icon: '🟢', available: false },
-  { id: 'apple', label: 'Apple Music', icon: '🍎', available: false },
-];
+type FetchState = 'idle' | 'loading' | 'done' | 'error';
+type MigrateState = 'idle' | 'loading' | 'done' | 'error';
 
 export default function Home() {
-  const [playlists, setPlaylists] = useState<Playlist[]>([]);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [loading, setLoading] = useState(false);
-  const [status, setStatus] = useState<MigrateStatus>({ state: 'idle', message: '' });
-  const [source, setSource] = useState('melon');
-  const [target, setTarget] = useState('ytmusic');
+  const [step, setStep] = useState<1 | 2>(1);
 
-  const fetchPlaylists = useCallback(async () => {
-    setLoading(true);
-    setStatus({ state: 'idle', message: '' });
+  // Step 1
+  const [fetchState, setFetchState] = useState<FetchState>('idle');
+  const [fetchMessage, setFetchMessage] = useState('');
+  const [fetchedCount, setFetchedCount] = useState(0);
+  const [fetchedTotal, setFetchedTotal] = useState(0);
+
+  // Step 2
+  const [playlists, setPlaylists] = useState<PlaylistSummary[]>([]);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [migrateState, setMigrateState] = useState<MigrateState>('idle');
+  const [migrateMessage, setMigrateMessage] = useState('');
+
+  // 기존 playlists.json이 있으면 Step 2에서 바로 로드
+  const loadPlaylists = useCallback(async () => {
     try {
       const res = await fetch('/api/playlists');
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      setPlaylists(data.playlists ?? []);
-      setSelected(new Set());
+      if (data.playlists?.length > 0) {
+        setPlaylists(data.playlists);
+        setFetchState('done');
+        setFetchedCount(data.playlists.length);
+        setFetchedTotal(data.playlists.reduce((s: number, p: PlaylistSummary) => s + p.song_count, 0));
+      }
     } catch {
-      setStatus({ state: 'error', message: '플레이리스트를 불러오지 못했습니다.' });
-    } finally {
-      setLoading(false);
+      // 파일 없으면 무시
     }
   }, []);
 
-  useEffect(() => {
-    fetchPlaylists();
-  }, [fetchPlaylists]);
+  useEffect(() => { loadPlaylists(); }, [loadPlaylists]);
 
+  // ── Step 1: 멜론 추출 ─────────────────────────────
+  async function handleFetch() {
+    setFetchState('loading');
+    setFetchMessage('멜론에서 플레이리스트를 가져오는 중입니다...');
+    try {
+      const res = await fetch('/api/fetch', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setFetchState('done');
+      setFetchedCount(data.count);
+      setFetchedTotal(data.totalTracks);
+      setPlaylists(data.playlists);
+      setFetchMessage('');
+    } catch (e) {
+      setFetchState('error');
+      setFetchMessage(e instanceof Error ? e.message : '추출 중 오류가 발생했습니다.');
+    }
+  }
+
+  function handleDownload(format: 'json' | 'xlsx') {
+    window.open(`/api/export?format=${format}`, '_blank');
+  }
+
+  // ── Step 2: 이전 ───────────────────────────────────
   function toggleSelect(id: string) {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -67,35 +82,29 @@ export default function Home() {
     );
   }
 
-  async function startMigration() {
+  async function handleMigrate() {
     if (selected.size === 0) return;
-    setStatus({ state: 'running', message: '이전을 시작합니다...' });
+    setMigrateState('loading');
+    setMigrateMessage('이전 요청 중...');
     try {
       const res = await fetch('/api/migrate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          playlistIds: Array.from(selected),
-          source,
-          target,
-        }),
+        body: JSON.stringify({ playlistIds: Array.from(selected), source: 'melon', target: 'ytmusic' }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? '알 수 없는 오류');
-      setStatus({ state: 'done', message: data.message ?? '이전이 완료되었습니다.' });
+      if (!res.ok) throw new Error(data.error);
+      setMigrateState('done');
+      setMigrateMessage(data.message);
     } catch (e) {
-      setStatus({
-        state: 'error',
-        message: e instanceof Error ? e.message : '이전 중 오류가 발생했습니다.',
-      });
+      setMigrateState('error');
+      setMigrateMessage(e instanceof Error ? e.message : '이전 중 오류가 발생했습니다.');
     }
   }
 
   const selectedTracks = playlists
     .filter((p) => selected.has(p.id))
-    .reduce((sum, p) => sum + p.song_count, 0);
-
-  const allSelected = playlists.length > 0 && selected.size === playlists.length;
+    .reduce((s, p) => s + p.song_count, 0);
 
   return (
     <main className="min-h-screen" style={{ background: 'var(--color-bg)' }}>
@@ -104,288 +113,274 @@ export default function Home() {
         className="sticky top-0 z-10 border-b px-6 py-4"
         style={{ background: 'var(--color-bg)', borderColor: 'var(--color-border)' }}
       >
-        <div className="max-w-3xl mx-auto flex items-center justify-between">
+        <div className="max-w-2xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div
-              className="w-9 h-9 rounded-xl flex items-center justify-center text-lg"
-              style={{ background: 'var(--color-accent)' }}
-            >
-              🎵
-            </div>
-            <div>
-              <h1 className="text-base font-bold leading-tight">Playlist Transfer</h1>
-              <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                음악 플레이리스트 이전 도구
-              </p>
-            </div>
+            <div className="w-8 h-8 rounded-xl flex items-center justify-center text-base"
+              style={{ background: 'var(--color-accent)' }}>🎵</div>
+            <span className="font-bold text-base">Playlist Transfer</span>
           </div>
-          <a
-            href="https://github.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1.5 text-sm transition-colors hover:text-white"
-            style={{ color: 'var(--color-text-muted)' }}
-          >
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M12 2C6.477 2 2 6.477 2 12c0 4.418 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.604-3.369-1.341-3.369-1.341-.454-1.155-1.11-1.462-1.11-1.462-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0112 6.836c.85.004 1.705.115 2.504.337 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.163 22 16.418 22 12c0-5.523-4.477-10-10-10z" />
-            </svg>
-            GitHub
-          </a>
+          <a href="https://github.com" target="_blank" rel="noopener noreferrer"
+            className="text-xs transition-colors hover:text-white"
+            style={{ color: 'var(--color-text-muted)' }}>GitHub</a>
         </div>
       </header>
 
-      <div className="max-w-3xl mx-auto px-6 py-8 space-y-4">
-        {/* Service Selector */}
-        <section
-          className="rounded-2xl p-5"
-          style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
-        >
-          <h2 className="text-xs font-semibold uppercase tracking-wider mb-4" style={{ color: 'var(--color-text-muted)' }}>
-            이전 경로
-          </h2>
-          <div className="flex items-center gap-3">
-            <div className="flex-1 space-y-1.5">
-              <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>Source</p>
-              <div className="space-y-1.5">
-                {SERVICE_OPTIONS.map((svc) => (
-                  <button
-                    key={svc.id}
-                    onClick={() => svc.available && setSource(svc.id)}
-                    disabled={!svc.available}
-                    className="w-full flex items-center gap-2.5 px-4 py-2.5 rounded-xl text-sm font-medium transition-all"
-                    style={{
-                      background: source === svc.id ? 'var(--color-accent)' : 'var(--color-surface-2)',
-                      opacity: !svc.available ? 0.4 : 1,
-                      cursor: !svc.available ? 'not-allowed' : 'pointer',
-                      border: `1px solid ${source === svc.id ? 'transparent' : 'var(--color-border)'}`,
-                    }}
-                  >
-                    <span>{svc.icon}</span>
-                    <span>{svc.label}</span>
-                    {!svc.available && (
-                      <span className="ml-auto text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                        준비 중
-                      </span>
-                    )}
-                  </button>
-                ))}
-              </div>
-            </div>
+      <div className="max-w-2xl mx-auto px-6 py-8 space-y-6">
 
-            <div className="flex flex-col items-center gap-1 pt-6">
-              <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm"
-                style={{ background: 'var(--color-surface-2)', color: 'var(--color-text-muted)' }}>
-                →
-              </div>
-            </div>
-
-            <div className="flex-1 space-y-1.5">
-              <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>Target</p>
-              <div className="space-y-1.5">
-                {TARGET_OPTIONS.map((svc) => (
-                  <button
-                    key={svc.id}
-                    onClick={() => svc.available && setTarget(svc.id)}
-                    disabled={!svc.available}
-                    className="w-full flex items-center gap-2.5 px-4 py-2.5 rounded-xl text-sm font-medium transition-all"
-                    style={{
-                      background: target === svc.id ? 'var(--color-accent)' : 'var(--color-surface-2)',
-                      opacity: !svc.available ? 0.4 : 1,
-                      cursor: !svc.available ? 'not-allowed' : 'pointer',
-                      border: `1px solid ${target === svc.id ? 'transparent' : 'var(--color-border)'}`,
-                    }}
-                  >
-                    <span>{svc.icon}</span>
-                    <span>{svc.label}</span>
-                    {!svc.available && (
-                      <span className="ml-auto text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                        준비 중
-                      </span>
-                    )}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Playlist List */}
-        <section
-          className="rounded-2xl p-5"
-          style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
-        >
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-semibold">
-              플레이리스트
-              {playlists.length > 0 && (
-                <span className="ml-2 text-xs px-2 py-0.5 rounded-full" style={{ background: 'var(--color-surface-2)', color: 'var(--color-text-muted)' }}>
-                  {playlists.length}
-                </span>
-              )}
-            </h2>
-            <div className="flex items-center gap-3">
-              {playlists.length > 0 && (
+        {/* Stepper */}
+        <div className="flex items-center gap-3">
+          {[
+            { num: 1, label: '추출', sub: 'Melon → 파일' },
+            { num: 2, label: '이전', sub: '파일 → YouTube Music' },
+          ].map(({ num, label, sub }, idx) => {
+            const isActive = step === num;
+            const isDone = (num === 1 && fetchState === 'done') || (num === 2 && migrateState === 'done');
+            return (
+              <div key={num} className="flex items-center gap-3 flex-1">
                 <button
-                  onClick={toggleAll}
-                  className="text-xs transition-colors"
-                  style={{ color: 'var(--color-accent)' }}
+                  onClick={() => (num === 2 && fetchState !== 'done') ? null : setStep(num as 1 | 2)}
+                  className="flex items-center gap-3 flex-1 p-4 rounded-2xl transition-all text-left"
+                  style={{
+                    background: isActive ? 'var(--color-surface)' : 'transparent',
+                    border: `1px solid ${isActive ? 'var(--color-accent)' : 'var(--color-border)'}`,
+                    opacity: num === 2 && fetchState !== 'done' ? 0.4 : 1,
+                    cursor: num === 2 && fetchState !== 'done' ? 'not-allowed' : 'pointer',
+                  }}
                 >
-                  {allSelected ? '전체 해제' : '전체 선택'}
+                  <div
+                    className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0"
+                    style={{
+                      background: isDone ? '#22c55e' : isActive ? 'var(--color-accent)' : 'var(--color-surface-2)',
+                    }}
+                  >
+                    {isDone ? '✓' : num}
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold">{label}</p>
+                    <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{sub}</p>
+                  </div>
                 </button>
-              )}
+                {idx === 0 && (
+                  <div className="text-lg flex-shrink-0" style={{ color: 'var(--color-text-muted)' }}>→</div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* ── Step 1 ── */}
+        {step === 1 && (
+          <div className="space-y-4">
+            {/* Source info */}
+            <div className="rounded-2xl p-5 space-y-4"
+              style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider mb-3"
+                  style={{ color: 'var(--color-text-muted)' }}>소스 서비스</p>
+                <div className="flex items-center gap-3 px-4 py-3 rounded-xl"
+                  style={{ background: 'var(--color-surface-2)' }}>
+                  <span>🎶</span>
+                  <span className="font-medium">Melon</span>
+                  <span className="ml-auto text-xs px-2 py-0.5 rounded-full"
+                    style={{ background: 'rgba(99,102,241,0.15)', color: 'var(--color-accent)' }}>
+                    {process.env.NEXT_PUBLIC_HAS_COOKIE ? '인증됨' : '쿠키 필요'}
+                  </span>
+                </div>
+              </div>
+
               <button
-                onClick={fetchPlaylists}
-                disabled={loading}
-                className="text-xs px-3 py-1.5 rounded-lg transition-colors"
+                onClick={handleFetch}
+                disabled={fetchState === 'loading'}
+                className="w-full py-3 rounded-xl font-semibold text-sm transition-all"
                 style={{
-                  background: 'var(--color-surface-2)',
-                  color: 'var(--color-text-muted)',
-                  border: '1px solid var(--color-border)',
+                  background: fetchState === 'loading' ? 'var(--color-surface-2)' : 'var(--color-accent)',
+                  color: fetchState === 'loading' ? 'var(--color-text-muted)' : 'white',
+                  cursor: fetchState === 'loading' ? 'not-allowed' : 'pointer',
                 }}
               >
-                {loading ? '로딩 중...' : '새로고침'}
+                {fetchState === 'loading' ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <span className="w-4 h-4 rounded-full border-2 border-t-transparent animate-spin inline-block"
+                      style={{ borderColor: 'currentColor', borderTopColor: 'transparent' }} />
+                    추출 중... (플레이리스트 수에 따라 수 분 소요)
+                  </span>
+                ) : fetchState === 'done' ? '다시 추출하기' : '멜론에서 추출 시작'}
               </button>
             </div>
-          </div>
 
-          {loading ? (
-            <div className="py-16 flex flex-col items-center gap-3">
-              <div
-                className="w-8 h-8 rounded-full border-2 border-t-transparent animate-spin"
-                style={{ borderColor: 'var(--color-accent)', borderTopColor: 'transparent' }}
-              />
-              <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>
-                플레이리스트 불러오는 중...
-              </p>
-            </div>
-          ) : playlists.length === 0 ? (
-            <div className="py-16 text-center space-y-2">
-              <p className="text-2xl">📭</p>
-              <p className="text-sm font-medium">플레이리스트가 없습니다</p>
-              <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                먼저 <code className="px-1 py-0.5 rounded" style={{ background: 'var(--color-surface-2)' }}>playlists.json</code>을 생성하거나 멜론에서 가져오세요
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {playlists.map((pl) => {
-                const isSelected = selected.has(pl.id);
-                return (
-                  <label
-                    key={pl.id}
-                    className="flex items-center gap-4 p-4 rounded-xl cursor-pointer transition-all"
-                    style={{
-                      background: isSelected ? 'rgba(99, 102, 241, 0.12)' : 'var(--color-surface-2)',
-                      border: `1px solid ${isSelected ? 'rgba(99, 102, 241, 0.35)' : 'var(--color-border)'}`,
-                    }}
-                  >
-                    <div
-                      className="w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 transition-colors"
-                      style={{
-                        background: isSelected ? 'var(--color-accent)' : 'transparent',
-                        border: `1.5px solid ${isSelected ? 'var(--color-accent)' : 'rgba(255,255,255,0.2)'}`,
-                      }}
-                    >
-                      {isSelected && (
-                        <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 12 12" stroke="currentColor" strokeWidth={2.5}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M2 6l3 3 5-5" />
-                        </svg>
-                      )}
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => toggleSelect(pl.id)}
-                      className="sr-only"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm truncate">{pl.name}</p>
-                      <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-muted)' }}>
-                        {pl.song_count.toLocaleString()}곡
-                      </p>
-                    </div>
-                    <div
-                      className="text-xs px-2.5 py-1 rounded-lg font-medium"
-                      style={{ background: 'var(--color-surface)', color: 'var(--color-text-muted)' }}
-                    >
-                      #{pl.id}
-                    </div>
-                  </label>
-                );
-              })}
-            </div>
-          )}
-        </section>
+            {/* 추출 결과 */}
+            {fetchState === 'done' && (
+              <div className="rounded-2xl p-5 space-y-4"
+                style={{ background: 'var(--color-surface)', border: '1px solid rgba(34,197,94,0.25)' }}>
+                <div className="flex items-center gap-3">
+                  <span className="text-xl">✅</span>
+                  <div>
+                    <p className="font-semibold text-sm">추출 완료</p>
+                    <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                      {fetchedCount}개 플레이리스트 · 총 {fetchedTotal.toLocaleString()}곡
+                    </p>
+                  </div>
+                </div>
 
-        {/* Status Banner */}
-        {status.state !== 'idle' && status.message && (
-          <div
-            className="rounded-xl px-5 py-3.5 text-sm flex items-center gap-3"
-            style={{
-              background:
-                status.state === 'done'
-                  ? 'rgba(34, 197, 94, 0.12)'
-                  : status.state === 'error'
-                  ? 'rgba(239, 68, 68, 0.12)'
-                  : 'rgba(99, 102, 241, 0.12)',
-              border: `1px solid ${
-                status.state === 'done'
-                  ? 'rgba(34, 197, 94, 0.3)'
-                  : status.state === 'error'
-                  ? 'rgba(239, 68, 68, 0.3)'
-                  : 'rgba(99, 102, 241, 0.3)'
-              }`,
-            }}
-          >
-            <span>
-              {status.state === 'done' ? '✅' : status.state === 'error' ? '❌' : '⏳'}
-            </span>
-            <span>{status.message}</span>
+                {/* 플레이리스트 미리보기 */}
+                <div className="space-y-1.5 max-h-48 overflow-y-auto scrollbar-hidden">
+                  {playlists.map((p) => (
+                    <div key={p.id} className="flex items-center justify-between px-3 py-2 rounded-lg text-sm"
+                      style={{ background: 'var(--color-surface-2)' }}>
+                      <span className="truncate max-w-xs">{p.name}</span>
+                      <span className="text-xs ml-3 flex-shrink-0" style={{ color: 'var(--color-text-muted)' }}>
+                        {p.song_count.toLocaleString()}곡
+                      </span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* 다운로드 버튼 */}
+                <div>
+                  <p className="text-xs mb-2" style={{ color: 'var(--color-text-muted)' }}>파일로 내보내기</p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleDownload('json')}
+                      className="flex-1 py-2.5 rounded-xl text-sm font-medium transition-colors"
+                      style={{ background: 'var(--color-surface-2)', border: '1px solid var(--color-border)' }}
+                    >
+                      📄 JSON 다운로드
+                    </button>
+                    <button
+                      onClick={() => handleDownload('xlsx')}
+                      className="flex-1 py-2.5 rounded-xl text-sm font-medium transition-colors"
+                      style={{ background: 'var(--color-surface-2)', border: '1px solid var(--color-border)' }}
+                    >
+                      📊 Excel 다운로드
+                    </button>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setStep(2)}
+                  className="w-full py-3 rounded-xl font-semibold text-sm"
+                  style={{ background: 'var(--color-accent)', color: 'white' }}
+                >
+                  2단계로 이전하기 →
+                </button>
+              </div>
+            )}
+
+            {/* 에러 */}
+            {fetchState === 'error' && (
+              <div className="rounded-xl px-5 py-4 text-sm"
+                style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)' }}>
+                ❌ {fetchMessage}
+              </div>
+            )}
           </div>
         )}
 
-        {/* Footer Action Bar */}
-        {playlists.length > 0 && (
-          <div className="flex items-center justify-between py-2">
-            <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>
-              {selected.size > 0 ? (
-                <>
-                  <span className="font-medium text-white">{selected.size}개</span> 선택 ·{' '}
-                  <span className="font-medium text-white">{selectedTracks.toLocaleString()}</span>곡
-                </>
-              ) : (
-                '플레이리스트를 선택하세요'
-              )}
-            </p>
-            <button
-              onClick={startMigration}
-              disabled={selected.size === 0 || status.state === 'running'}
-              className="flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-semibold transition-all"
-              style={{
-                background:
-                  selected.size === 0 || status.state === 'running'
-                    ? 'var(--color-surface-2)'
-                    : 'var(--color-accent)',
-                color:
-                  selected.size === 0 || status.state === 'running'
-                    ? 'var(--color-text-muted)'
-                    : 'white',
-                cursor:
-                  selected.size === 0 || status.state === 'running' ? 'not-allowed' : 'pointer',
-              }}
-            >
-              {status.state === 'running' ? (
-                <>
-                  <div
-                    className="w-3.5 h-3.5 rounded-full border-2 border-t-transparent animate-spin"
-                    style={{ borderColor: 'currentColor', borderTopColor: 'transparent' }}
-                  />
-                  이전 중...
-                </>
-              ) : (
-                <>이전 시작 →</>
-              )}
-            </button>
+        {/* ── Step 2 ── */}
+        {step === 2 && (
+          <div className="space-y-4">
+            {/* 플레이리스트 선택 */}
+            <div className="rounded-2xl p-5"
+              style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <p className="font-semibold text-sm">플레이리스트 선택</p>
+                  <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-muted)' }}>
+                    이전할 항목을 선택하세요
+                  </p>
+                </div>
+                <button onClick={toggleAll} className="text-xs transition-colors"
+                  style={{ color: 'var(--color-accent)' }}>
+                  {selected.size === playlists.length ? '전체 해제' : '전체 선택'}
+                </button>
+              </div>
+
+              <div className="space-y-2 max-h-72 overflow-y-auto scrollbar-hidden">
+                {playlists.map((pl) => {
+                  const isSelected = selected.has(pl.id);
+                  return (
+                    <label key={pl.id}
+                      className="flex items-center gap-4 p-3.5 rounded-xl cursor-pointer transition-all"
+                      style={{
+                        background: isSelected ? 'rgba(99,102,241,0.12)' : 'var(--color-surface-2)',
+                        border: `1px solid ${isSelected ? 'rgba(99,102,241,0.35)' : 'var(--color-border)'}`,
+                      }}>
+                      <div className="w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 transition-colors"
+                        style={{
+                          background: isSelected ? 'var(--color-accent)' : 'transparent',
+                          border: `1.5px solid ${isSelected ? 'var(--color-accent)' : 'rgba(255,255,255,0.2)'}`,
+                        }}>
+                        {isSelected && (
+                          <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 12 12" stroke="currentColor" strokeWidth={2.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M2 6l3 3 5-5" />
+                          </svg>
+                        )}
+                      </div>
+                      <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(pl.id)} className="sr-only" />
+                      <span className="flex-1 text-sm font-medium truncate">{pl.name}</span>
+                      <span className="text-xs flex-shrink-0" style={{ color: 'var(--color-text-muted)' }}>
+                        {pl.song_count.toLocaleString()}곡
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Target */}
+            <div className="rounded-2xl p-5"
+              style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
+              <p className="text-xs font-semibold uppercase tracking-wider mb-3"
+                style={{ color: 'var(--color-text-muted)' }}>대상 서비스</p>
+              <div className="flex items-center gap-3 px-4 py-3 rounded-xl"
+                style={{ background: 'var(--color-surface-2)', border: '1px solid var(--color-accent)' }}>
+                <span>▶️</span>
+                <span className="font-medium text-sm">YouTube Music</span>
+                <span className="ml-auto text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                  browser.json 필요
+                </span>
+              </div>
+            </div>
+
+            {/* 상태 배너 */}
+            {migrateState !== 'idle' && (
+              <div className="rounded-xl px-5 py-3.5 text-sm flex items-center gap-3"
+                style={{
+                  background: migrateState === 'done' ? 'rgba(34,197,94,0.1)'
+                    : migrateState === 'error' ? 'rgba(239,68,68,0.1)'
+                    : 'rgba(99,102,241,0.1)',
+                  border: `1px solid ${migrateState === 'done' ? 'rgba(34,197,94,0.3)'
+                    : migrateState === 'error' ? 'rgba(239,68,68,0.3)'
+                    : 'rgba(99,102,241,0.3)'}`,
+                }}>
+                <span>{migrateState === 'done' ? '✅' : migrateState === 'error' ? '❌' : '⏳'}</span>
+                <span>{migrateMessage}</span>
+              </div>
+            )}
+
+            {/* Action bar */}
+            <div className="flex items-center justify-between py-1">
+              <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>
+                {selected.size > 0 ? (
+                  <><span className="font-medium text-white">{selected.size}개</span> 선택 ·{' '}
+                  <span className="font-medium text-white">{selectedTracks.toLocaleString()}</span>곡</>
+                ) : '플레이리스트를 선택하세요'}
+              </p>
+              <button
+                onClick={handleMigrate}
+                disabled={selected.size === 0 || migrateState === 'loading'}
+                className="px-6 py-2.5 rounded-xl text-sm font-semibold transition-all"
+                style={{
+                  background: selected.size === 0 || migrateState === 'loading'
+                    ? 'var(--color-surface-2)' : 'var(--color-accent)',
+                  color: selected.size === 0 || migrateState === 'loading'
+                    ? 'var(--color-text-muted)' : 'white',
+                  cursor: selected.size === 0 || migrateState === 'loading' ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {migrateState === 'loading' ? '이전 중...' : '이전 시작 →'}
+              </button>
+            </div>
           </div>
         )}
       </div>
