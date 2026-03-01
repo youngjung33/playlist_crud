@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 interface PlaylistSummary {
   id: string;
@@ -8,66 +8,105 @@ interface PlaylistSummary {
   song_count: number;
 }
 
-type FetchState = 'idle' | 'loading' | 'done' | 'error';
-type MigrateState = 'idle' | 'loading' | 'done' | 'error';
+type AsyncState = 'idle' | 'loading' | 'done' | 'error';
 
 export default function Home() {
   const [step, setStep] = useState<1 | 2>(1);
 
-  // Step 1
-  const [fetchState, setFetchState] = useState<FetchState>('idle');
-  const [fetchMessage, setFetchMessage] = useState('');
-  const [fetchedCount, setFetchedCount] = useState(0);
-  const [fetchedTotal, setFetchedTotal] = useState(0);
-
-  // Step 2
+  // Step 1 공통 결과
   const [playlists, setPlaylists] = useState<PlaylistSummary[]>([]);
+  const [resultCount, setResultCount] = useState(0);
+  const [resultTotal, setResultTotal] = useState(0);
+
+  // Step 1 — 멜론 추출
+  const [fetchState, setFetchState] = useState<AsyncState>('idle');
+  const [fetchMessage, setFetchMessage] = useState('');
+
+  // Step 1 — 파일 업로드
+  const [uploadState, setUploadState] = useState<AsyncState>('idle');
+  const [uploadMessage, setUploadMessage] = useState('');
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Step 2 — 이전
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [migrateState, setMigrateState] = useState<MigrateState>('idle');
+  const [migrateState, setMigrateState] = useState<AsyncState>('idle');
   const [migrateMessage, setMigrateMessage] = useState('');
 
-  // 기존 playlists.json이 있으면 Step 2에서 바로 로드
-  const loadPlaylists = useCallback(async () => {
+  const isStep1Done = fetchState === 'done' || uploadState === 'done';
+
+  // 기존 playlists.json 자동 로드
+  const loadExisting = useCallback(async () => {
     try {
       const res = await fetch('/api/playlists');
       const data = await res.json();
       if (data.playlists?.length > 0) {
         setPlaylists(data.playlists);
+        setResultCount(data.playlists.length);
+        setResultTotal(data.playlists.reduce((s: number, p: PlaylistSummary) => s + p.song_count, 0));
         setFetchState('done');
-        setFetchedCount(data.playlists.length);
-        setFetchedTotal(data.playlists.reduce((s: number, p: PlaylistSummary) => s + p.song_count, 0));
       }
-    } catch {
-      // 파일 없으면 무시
-    }
+    } catch { /* 파일 없으면 무시 */ }
   }, []);
 
-  useEffect(() => { loadPlaylists(); }, [loadPlaylists]);
+  useEffect(() => { loadExisting(); }, [loadExisting]);
 
-  // ── Step 1: 멜론 추출 ─────────────────────────────
+  // ── 공통: 결과 적용 ────────────────────────────────────────────
+  function applyResult(data: { playlists: PlaylistSummary[]; count: number; totalTracks: number }) {
+    setPlaylists(data.playlists);
+    setResultCount(data.count);
+    setResultTotal(data.totalTracks);
+    setSelected(new Set());
+  }
+
+  // ── 멜론 추출 ─────────────────────────────────────────────────
   async function handleFetch() {
     setFetchState('loading');
-    setFetchMessage('멜론에서 플레이리스트를 가져오는 중입니다...');
+    setFetchMessage('');
+    setUploadState('idle'); // 다른 경로 초기화
     try {
       const res = await fetch('/api/fetch', { method: 'POST' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       setFetchState('done');
-      setFetchedCount(data.count);
-      setFetchedTotal(data.totalTracks);
-      setPlaylists(data.playlists);
-      setFetchMessage('');
+      applyResult(data);
     } catch (e) {
       setFetchState('error');
       setFetchMessage(e instanceof Error ? e.message : '추출 중 오류가 발생했습니다.');
     }
   }
 
+  // ── 파일 업로드 ───────────────────────────────────────────────
+  async function handleFileUpload(file: File) {
+    setUploadState('loading');
+    setUploadMessage('');
+    setFetchState('idle'); // 다른 경로 초기화
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+      const res = await fetch('/api/import', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setUploadState('done');
+      applyResult(data);
+    } catch (e) {
+      setUploadState('error');
+      setUploadMessage(e instanceof Error ? e.message : '파일 처리 중 오류가 발생했습니다.');
+    }
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file) handleFileUpload(file);
+  }
+
   function handleDownload(format: 'json' | 'xlsx') {
     window.open(`/api/export?format=${format}`, '_blank');
   }
 
-  // ── Step 2: 이전 ───────────────────────────────────
+  // ── Step 2 ────────────────────────────────────────────────────
   function toggleSelect(id: string) {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -77,15 +116,12 @@ export default function Home() {
   }
 
   function toggleAll() {
-    setSelected(
-      selected.size === playlists.length ? new Set() : new Set(playlists.map((p) => p.id))
-    );
+    setSelected(selected.size === playlists.length ? new Set() : new Set(playlists.map((p) => p.id)));
   }
 
   async function handleMigrate() {
     if (selected.size === 0) return;
     setMigrateState('loading');
-    setMigrateMessage('이전 요청 중...');
     try {
       const res = await fetch('/api/migrate', {
         method: 'POST',
@@ -102,17 +138,19 @@ export default function Home() {
     }
   }
 
-  const selectedTracks = playlists
-    .filter((p) => selected.has(p.id))
-    .reduce((s, p) => s + p.song_count, 0);
+  const selectedTracks = playlists.filter((p) => selected.has(p.id)).reduce((s, p) => s + p.song_count, 0);
+
+  // ── 스타일 헬퍼 ───────────────────────────────────────────────
+  const card = {
+    background: 'var(--color-surface)',
+    border: '1px solid var(--color-border)',
+  };
 
   return (
     <main className="min-h-screen" style={{ background: 'var(--color-bg)' }}>
       {/* Header */}
-      <header
-        className="sticky top-0 z-10 border-b px-6 py-4"
-        style={{ background: 'var(--color-bg)', borderColor: 'var(--color-border)' }}
-      >
+      <header className="sticky top-0 z-10 border-b px-6 py-4"
+        style={{ background: 'var(--color-bg)', borderColor: 'var(--color-border)' }}>
         <div className="max-w-2xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-xl flex items-center justify-center text-base"
@@ -120,39 +158,37 @@ export default function Home() {
             <span className="font-bold text-base">Playlist Transfer</span>
           </div>
           <a href="https://github.com" target="_blank" rel="noopener noreferrer"
-            className="text-xs transition-colors hover:text-white"
+            className="text-xs hover:text-white transition-colors"
             style={{ color: 'var(--color-text-muted)' }}>GitHub</a>
         </div>
       </header>
 
-      <div className="max-w-2xl mx-auto px-6 py-8 space-y-6">
+      <div className="max-w-2xl mx-auto px-6 py-8 space-y-5">
 
         {/* Stepper */}
         <div className="flex items-center gap-3">
           {[
-            { num: 1, label: '추출', sub: 'Melon → 파일' },
-            { num: 2, label: '이전', sub: '파일 → YouTube Music' },
+            { num: 1, label: '1단계', sub: '플레이리스트 준비' },
+            { num: 2, label: '2단계', sub: 'YouTube Music 이전' },
           ].map(({ num, label, sub }, idx) => {
             const isActive = step === num;
-            const isDone = (num === 1 && fetchState === 'done') || (num === 2 && migrateState === 'done');
+            const isDone = num === 1 ? isStep1Done : migrateState === 'done';
+            const disabled = num === 2 && !isStep1Done;
             return (
               <div key={num} className="flex items-center gap-3 flex-1">
                 <button
-                  onClick={() => (num === 2 && fetchState !== 'done') ? null : setStep(num as 1 | 2)}
-                  className="flex items-center gap-3 flex-1 p-4 rounded-2xl transition-all text-left"
+                  onClick={() => !disabled && setStep(num as 1 | 2)}
+                  disabled={disabled}
+                  className="flex items-center gap-3 flex-1 p-4 rounded-2xl text-left transition-all"
                   style={{
                     background: isActive ? 'var(--color-surface)' : 'transparent',
                     border: `1px solid ${isActive ? 'var(--color-accent)' : 'var(--color-border)'}`,
-                    opacity: num === 2 && fetchState !== 'done' ? 0.4 : 1,
-                    cursor: num === 2 && fetchState !== 'done' ? 'not-allowed' : 'pointer',
+                    opacity: disabled ? 0.4 : 1,
+                    cursor: disabled ? 'not-allowed' : 'pointer',
                   }}
                 >
-                  <div
-                    className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0"
-                    style={{
-                      background: isDone ? '#22c55e' : isActive ? 'var(--color-accent)' : 'var(--color-surface-2)',
-                    }}
-                  >
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0"
+                    style={{ background: isDone ? '#22c55e' : isActive ? 'var(--color-accent)' : 'var(--color-surface-2)' }}>
                     {isDone ? '✓' : num}
                   </div>
                   <div>
@@ -160,74 +196,119 @@ export default function Home() {
                     <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{sub}</p>
                   </div>
                 </button>
-                {idx === 0 && (
-                  <div className="text-lg flex-shrink-0" style={{ color: 'var(--color-text-muted)' }}>→</div>
-                )}
+                {idx === 0 && <span className="text-lg flex-shrink-0" style={{ color: 'var(--color-text-muted)' }}>→</span>}
               </div>
             );
           })}
         </div>
 
-        {/* ── Step 1 ── */}
+        {/* ════════════════ STEP 1 ════════════════ */}
         {step === 1 && (
-          <div className="space-y-4">
-            {/* Source info */}
-            <div className="rounded-2xl p-5 space-y-4"
-              style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider mb-3"
-                  style={{ color: 'var(--color-text-muted)' }}>소스 서비스</p>
-                <div className="flex items-center gap-3 px-4 py-3 rounded-xl"
-                  style={{ background: 'var(--color-surface-2)' }}>
-                  <span>🎶</span>
-                  <span className="font-medium">Melon</span>
-                  <span className="ml-auto text-xs px-2 py-0.5 rounded-full"
-                    style={{ background: 'rgba(99,102,241,0.15)', color: 'var(--color-accent)' }}>
-                    {process.env.NEXT_PUBLIC_HAS_COOKIE ? '인증됨' : '쿠키 필요'}
-                  </span>
-                </div>
-              </div>
+          <div className="space-y-3">
 
-              <button
-                onClick={handleFetch}
-                disabled={fetchState === 'loading'}
-                className="w-full py-3 rounded-xl font-semibold text-sm transition-all"
+            {/* 옵션 A: 멜론 추출 */}
+            <div className="rounded-2xl p-5 space-y-3" style={card}>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-xs font-bold uppercase tracking-wider px-2 py-0.5 rounded-full"
+                  style={{ background: 'rgba(99,102,241,0.15)', color: 'var(--color-accent)' }}>방법 1</span>
+                <span className="text-sm font-semibold">멜론에서 직접 추출</span>
+              </div>
+              <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-sm"
+                style={{ background: 'var(--color-surface-2)' }}>
+                <span>🎶</span><span className="font-medium">Melon</span>
+                <span className="ml-auto text-xs" style={{ color: 'var(--color-text-muted)' }}>.env 쿠키 사용</span>
+              </div>
+              <button onClick={handleFetch} disabled={fetchState === 'loading'}
+                className="w-full py-2.5 rounded-xl font-medium text-sm transition-all"
                 style={{
                   background: fetchState === 'loading' ? 'var(--color-surface-2)' : 'var(--color-accent)',
                   color: fetchState === 'loading' ? 'var(--color-text-muted)' : 'white',
                   cursor: fetchState === 'loading' ? 'not-allowed' : 'pointer',
-                }}
-              >
-                {fetchState === 'loading' ? (
-                  <span className="flex items-center justify-center gap-2">
-                    <span className="w-4 h-4 rounded-full border-2 border-t-transparent animate-spin inline-block"
-                      style={{ borderColor: 'currentColor', borderTopColor: 'transparent' }} />
-                    추출 중... (플레이리스트 수에 따라 수 분 소요)
-                  </span>
-                ) : fetchState === 'done' ? '다시 추출하기' : '멜론에서 추출 시작'}
+                }}>
+                {fetchState === 'loading'
+                  ? <span className="flex items-center justify-center gap-2">
+                      <span className="w-3.5 h-3.5 rounded-full border-2 border-t-transparent animate-spin inline-block"
+                        style={{ borderColor: 'currentColor', borderTopColor: 'transparent' }} />
+                      추출 중... (수 분 소요될 수 있습니다)
+                    </span>
+                  : fetchState === 'done' ? '다시 추출하기' : '추출 시작'}
               </button>
+              {fetchState === 'error' && (
+                <p className="text-xs px-3 py-2 rounded-lg" style={{ background: 'rgba(239,68,68,0.1)', color: '#f87171' }}>
+                  ❌ {fetchMessage}
+                </p>
+              )}
             </div>
 
-            {/* 추출 결과 */}
-            {fetchState === 'done' && (
+            {/* 구분선 */}
+            <div className="flex items-center gap-3">
+              <div className="flex-1 h-px" style={{ background: 'var(--color-border)' }} />
+              <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>또는</span>
+              <div className="flex-1 h-px" style={{ background: 'var(--color-border)' }} />
+            </div>
+
+            {/* 옵션 B: 파일 업로드 */}
+            <div className="rounded-2xl p-5 space-y-3" style={card}>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-xs font-bold uppercase tracking-wider px-2 py-0.5 rounded-full"
+                  style={{ background: 'rgba(34,197,94,0.15)', color: '#4ade80' }}>방법 2</span>
+                <span className="text-sm font-semibold">파일로 불러오기</span>
+              </div>
+
+              {/* 드래그 앤 드롭 영역 */}
+              <div
+                onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                onDragLeave={() => setIsDragging(false)}
+                onDrop={handleDrop}
+                onClick={() => fileInputRef.current?.click()}
+                className="rounded-xl flex flex-col items-center justify-center gap-2 py-8 cursor-pointer transition-all"
+                style={{
+                  border: `2px dashed ${isDragging ? 'var(--color-accent)' : 'rgba(255,255,255,0.12)'}`,
+                  background: isDragging ? 'rgba(99,102,241,0.08)' : 'var(--color-surface-2)',
+                }}
+              >
+                <span className="text-2xl">{uploadState === 'loading' ? '⏳' : '📂'}</span>
+                <p className="text-sm font-medium">
+                  {uploadState === 'loading' ? '처리 중...' : '파일을 드래그하거나 클릭하여 선택'}
+                </p>
+                <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                  JSON · Excel (.xlsx) 지원
+                </p>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".json,.xlsx,.xls"
+                  className="sr-only"
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileUpload(f); e.target.value = ''; }}
+                />
+              </div>
+              {uploadState === 'error' && (
+                <p className="text-xs px-3 py-2 rounded-lg" style={{ background: 'rgba(239,68,68,0.1)', color: '#f87171' }}>
+                  ❌ {uploadMessage}
+                </p>
+              )}
+            </div>
+
+            {/* 공통 결과 카드 */}
+            {isStep1Done && (
               <div className="rounded-2xl p-5 space-y-4"
                 style={{ background: 'var(--color-surface)', border: '1px solid rgba(34,197,94,0.25)' }}>
                 <div className="flex items-center gap-3">
                   <span className="text-xl">✅</span>
                   <div>
-                    <p className="font-semibold text-sm">추출 완료</p>
+                    <p className="font-semibold text-sm">준비 완료</p>
                     <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                      {fetchedCount}개 플레이리스트 · 총 {fetchedTotal.toLocaleString()}곡
+                      {resultCount}개 플레이리스트 · 총 {resultTotal.toLocaleString()}곡
                     </p>
                   </div>
                 </div>
 
-                {/* 플레이리스트 미리보기 */}
-                <div className="space-y-1.5 max-h-48 overflow-y-auto scrollbar-hidden">
+                {/* 미리보기 */}
+                <div className="space-y-1.5 max-h-44 overflow-y-auto scrollbar-hidden">
                   {playlists.map((p) => (
                     <div key={p.id} className="flex items-center justify-between px-3 py-2 rounded-lg text-sm"
                       style={{ background: 'var(--color-surface-2)' }}>
-                      <span className="truncate max-w-xs">{p.name}</span>
+                      <span className="truncate">{p.name}</span>
                       <span className="text-xs ml-3 flex-shrink-0" style={{ color: 'var(--color-text-muted)' }}>
                         {p.song_count.toLocaleString()}곡
                       </span>
@@ -235,62 +316,45 @@ export default function Home() {
                   ))}
                 </div>
 
-                {/* 다운로드 버튼 */}
+                {/* 내보내기 */}
                 <div>
                   <p className="text-xs mb-2" style={{ color: 'var(--color-text-muted)' }}>파일로 내보내기</p>
                   <div className="flex gap-2">
-                    <button
-                      onClick={() => handleDownload('json')}
-                      className="flex-1 py-2.5 rounded-xl text-sm font-medium transition-colors"
-                      style={{ background: 'var(--color-surface-2)', border: '1px solid var(--color-border)' }}
-                    >
-                      📄 JSON 다운로드
+                    <button onClick={() => handleDownload('json')}
+                      className="flex-1 py-2 rounded-xl text-sm font-medium transition-colors"
+                      style={{ background: 'var(--color-surface-2)', border: '1px solid var(--color-border)' }}>
+                      📄 JSON
                     </button>
-                    <button
-                      onClick={() => handleDownload('xlsx')}
-                      className="flex-1 py-2.5 rounded-xl text-sm font-medium transition-colors"
-                      style={{ background: 'var(--color-surface-2)', border: '1px solid var(--color-border)' }}
-                    >
-                      📊 Excel 다운로드
+                    <button onClick={() => handleDownload('xlsx')}
+                      className="flex-1 py-2 rounded-xl text-sm font-medium transition-colors"
+                      style={{ background: 'var(--color-surface-2)', border: '1px solid var(--color-border)' }}>
+                      📊 Excel
                     </button>
                   </div>
                 </div>
 
-                <button
-                  onClick={() => setStep(2)}
+                <button onClick={() => setStep(2)}
                   className="w-full py-3 rounded-xl font-semibold text-sm"
-                  style={{ background: 'var(--color-accent)', color: 'white' }}
-                >
+                  style={{ background: 'var(--color-accent)', color: 'white' }}>
                   2단계로 이전하기 →
                 </button>
-              </div>
-            )}
-
-            {/* 에러 */}
-            {fetchState === 'error' && (
-              <div className="rounded-xl px-5 py-4 text-sm"
-                style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)' }}>
-                ❌ {fetchMessage}
               </div>
             )}
           </div>
         )}
 
-        {/* ── Step 2 ── */}
+        {/* ════════════════ STEP 2 ════════════════ */}
         {step === 2 && (
           <div className="space-y-4">
+
             {/* 플레이리스트 선택 */}
-            <div className="rounded-2xl p-5"
-              style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
+            <div className="rounded-2xl p-5" style={card}>
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <p className="font-semibold text-sm">플레이리스트 선택</p>
-                  <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-muted)' }}>
-                    이전할 항목을 선택하세요
-                  </p>
+                  <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-muted)' }}>이전할 항목을 선택하세요</p>
                 </div>
-                <button onClick={toggleAll} className="text-xs transition-colors"
-                  style={{ color: 'var(--color-accent)' }}>
+                <button onClick={toggleAll} className="text-xs" style={{ color: 'var(--color-accent)' }}>
                   {selected.size === playlists.length ? '전체 해제' : '전체 선택'}
                 </button>
               </div>
@@ -305,7 +369,7 @@ export default function Home() {
                         background: isSelected ? 'rgba(99,102,241,0.12)' : 'var(--color-surface-2)',
                         border: `1px solid ${isSelected ? 'rgba(99,102,241,0.35)' : 'var(--color-border)'}`,
                       }}>
-                      <div className="w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 transition-colors"
+                      <div className="w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0"
                         style={{
                           background: isSelected ? 'var(--color-accent)' : 'transparent',
                           border: `1.5px solid ${isSelected ? 'var(--color-accent)' : 'rgba(255,255,255,0.2)'}`,
@@ -327,9 +391,8 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Target */}
-            <div className="rounded-2xl p-5"
-              style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
+            {/* 대상 서비스 */}
+            <div className="rounded-2xl p-5" style={card}>
               <p className="text-xs font-semibold uppercase tracking-wider mb-3"
                 style={{ color: 'var(--color-text-muted)' }}>대상 서비스</p>
               <div className="flex items-center gap-3 px-4 py-3 rounded-xl"
@@ -346,12 +409,8 @@ export default function Home() {
             {migrateState !== 'idle' && (
               <div className="rounded-xl px-5 py-3.5 text-sm flex items-center gap-3"
                 style={{
-                  background: migrateState === 'done' ? 'rgba(34,197,94,0.1)'
-                    : migrateState === 'error' ? 'rgba(239,68,68,0.1)'
-                    : 'rgba(99,102,241,0.1)',
-                  border: `1px solid ${migrateState === 'done' ? 'rgba(34,197,94,0.3)'
-                    : migrateState === 'error' ? 'rgba(239,68,68,0.3)'
-                    : 'rgba(99,102,241,0.3)'}`,
+                  background: migrateState === 'done' ? 'rgba(34,197,94,0.1)' : migrateState === 'error' ? 'rgba(239,68,68,0.1)' : 'rgba(99,102,241,0.1)',
+                  border: `1px solid ${migrateState === 'done' ? 'rgba(34,197,94,0.3)' : migrateState === 'error' ? 'rgba(239,68,68,0.3)' : 'rgba(99,102,241,0.3)'}`,
                 }}>
                 <span>{migrateState === 'done' ? '✅' : migrateState === 'error' ? '❌' : '⏳'}</span>
                 <span>{migrateMessage}</span>
@@ -361,23 +420,18 @@ export default function Home() {
             {/* Action bar */}
             <div className="flex items-center justify-between py-1">
               <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>
-                {selected.size > 0 ? (
-                  <><span className="font-medium text-white">{selected.size}개</span> 선택 ·{' '}
-                  <span className="font-medium text-white">{selectedTracks.toLocaleString()}</span>곡</>
-                ) : '플레이리스트를 선택하세요'}
+                {selected.size > 0
+                  ? <><span className="font-medium text-white">{selected.size}개</span> 선택 · <span className="font-medium text-white">{selectedTracks.toLocaleString()}</span>곡</>
+                  : '플레이리스트를 선택하세요'}
               </p>
-              <button
-                onClick={handleMigrate}
+              <button onClick={handleMigrate}
                 disabled={selected.size === 0 || migrateState === 'loading'}
                 className="px-6 py-2.5 rounded-xl text-sm font-semibold transition-all"
                 style={{
-                  background: selected.size === 0 || migrateState === 'loading'
-                    ? 'var(--color-surface-2)' : 'var(--color-accent)',
-                  color: selected.size === 0 || migrateState === 'loading'
-                    ? 'var(--color-text-muted)' : 'white',
+                  background: selected.size === 0 || migrateState === 'loading' ? 'var(--color-surface-2)' : 'var(--color-accent)',
+                  color: selected.size === 0 || migrateState === 'loading' ? 'var(--color-text-muted)' : 'white',
                   cursor: selected.size === 0 || migrateState === 'loading' ? 'not-allowed' : 'pointer',
-                }}
-              >
+                }}>
                 {migrateState === 'loading' ? '이전 중...' : '이전 시작 →'}
               </button>
             </div>
