@@ -11,8 +11,36 @@ interface PlaylistSummary {
 type AsyncState = 'idle' | 'loading' | 'done' | 'error';
 type ValidateState = 'idle' | 'loading' | 'valid' | 'invalid';
 
+interface ServiceConfig {
+  id: string;
+  label: string;
+  icon: string;
+  available: boolean;
+  hint?: string;
+}
+
+const SOURCE_SERVICES: ServiceConfig[] = [
+  { id: 'melon',   label: 'Melon',        icon: '🎶', available: true,  hint: '쿠키 인증' },
+  { id: 'spotify', label: 'Spotify',       icon: '🟢', available: false },
+  { id: 'apple',   label: 'Apple Music',   icon: '🍎', available: false },
+  { id: 'bugs',    label: 'Bugs',          icon: '🎸', available: false },
+  { id: 'genie',   label: 'Genie',         icon: '🎵', available: false },
+  { id: 'vibe',    label: 'Vibe',          icon: '💜', available: false },
+];
+
+const TARGET_SERVICES: ServiceConfig[] = [
+  { id: 'ytmusic', label: 'YouTube Music', icon: '▶️', available: true,  hint: 'browser.json 필요' },
+  { id: 'spotify', label: 'Spotify',       icon: '🟢', available: false },
+  { id: 'apple',   label: 'Apple Music',   icon: '🍎', available: false },
+  { id: 'melon',   label: 'Melon',         icon: '🎶', available: false },
+  { id: 'bugs',    label: 'Bugs',          icon: '🎸', available: false },
+  { id: 'genie',   label: 'Genie',         icon: '🎵', available: false },
+];
+
 export default function Home() {
   const [step, setStep] = useState<1 | 2>(1);
+  const [sourceService, setSourceService] = useState('melon');
+  const [targetService, setTargetService] = useState('ytmusic');
 
   // Step 1 공통 결과
   const [playlists, setPlaylists] = useState<PlaylistSummary[]>([]);
@@ -195,8 +223,8 @@ export default function Home() {
         {/* Stepper */}
         <div className="flex items-center gap-3">
           {[
-            { num: 1, label: '1단계', sub: '플레이리스트 준비' },
-            { num: 2, label: '2단계', sub: 'YouTube Music 이전' },
+            { num: 1, label: '1단계', sub: `${SOURCE_SERVICES.find(s => s.id === sourceService)?.label ?? ''} 추출` },
+            { num: 2, label: '2단계', sub: `${TARGET_SERVICES.find(s => s.id === targetService)?.label ?? ''} 이전` },
           ].map(({ num, label, sub }, idx) => {
             const isActive = step === num;
             const isDone = num === 1 ? isStep1Done : migrateState === 'done';
@@ -233,19 +261,50 @@ export default function Home() {
         {step === 1 && (
           <div className="space-y-3">
 
-            {/* 옵션 A: 멜론 추출 */}
+            {/* 옵션 A: 소스 서비스 선택 후 추출 */}
             <div className="rounded-2xl p-5 space-y-3" style={card}>
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-xs font-bold uppercase tracking-wider px-2 py-0.5 rounded-full"
                   style={{ background: 'rgba(99,102,241,0.15)', color: 'var(--color-accent)' }}>방법 1</span>
-                <span className="text-sm font-semibold">멜론에서 직접 추출</span>
+                <span className="text-sm font-semibold">스트리밍 서비스에서 직접 추출</span>
               </div>
 
-              {/* 인증 상태 */}
+              {/* 소스 서비스 그리드 */}
+              <div className="grid grid-cols-3 gap-2">
+                {SOURCE_SERVICES.map((svc) => {
+                  const isSelected = sourceService === svc.id;
+                  return (
+                    <button
+                      key={svc.id}
+                      onClick={() => svc.available && setSourceService(svc.id)}
+                      disabled={!svc.available}
+                      className="relative flex flex-col items-center gap-1.5 py-3 px-2 rounded-xl text-xs font-medium transition-all"
+                      style={{
+                        background: isSelected ? 'rgba(99,102,241,0.15)' : 'var(--color-surface-2)',
+                        border: `1.5px solid ${isSelected ? 'var(--color-accent)' : 'transparent'}`,
+                        opacity: svc.available ? 1 : 0.45,
+                        cursor: svc.available ? 'pointer' : 'not-allowed',
+                      }}
+                    >
+                      <span className="text-xl">{svc.icon}</span>
+                      <span className="truncate w-full text-center">{svc.label}</span>
+                      {!svc.available && (
+                        <span className="absolute top-1.5 right-1.5 text-[9px] px-1 py-0.5 rounded font-bold"
+                          style={{ background: 'rgba(255,255,255,0.08)', color: 'var(--color-text-muted)' }}>
+                          준비 중
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* 선택된 서비스의 인증 상태 (Melon만 해당) */}
+              {sourceService === 'melon' && (
               <div className="flex items-center justify-between px-3.5 py-2.5 rounded-xl text-sm"
                 style={{ background: 'var(--color-surface-2)' }}>
                 <div className="flex items-center gap-2">
-                  <span>🎶</span>
+                  <span>🔑</span>
                   <span className="font-medium">Melon 쿠키</span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -285,9 +344,10 @@ export default function Home() {
                   </button>
                 </div>
               </div>
+              )}
 
               {/* 인증 실패 메시지 */}
-              {validateState === 'invalid' && validateMessage && (
+              {sourceService === 'melon' && validateState === 'invalid' && validateMessage && (
                 <p className="text-xs px-3 py-2 rounded-lg" style={{ background: 'rgba(239,68,68,0.08)', color: '#f87171' }}>
                   ⚠️ {validateMessage}
                 </p>
@@ -477,13 +537,38 @@ export default function Home() {
             <div className="rounded-2xl p-5" style={card}>
               <p className="text-xs font-semibold uppercase tracking-wider mb-3"
                 style={{ color: 'var(--color-text-muted)' }}>대상 서비스</p>
-              <div className="flex items-center gap-3 px-4 py-3 rounded-xl"
-                style={{ background: 'var(--color-surface-2)', border: '1px solid var(--color-accent)' }}>
-                <span>▶️</span>
-                <span className="font-medium text-sm">YouTube Music</span>
-                <span className="ml-auto text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                  browser.json 필요
-                </span>
+              <div className="grid grid-cols-3 gap-2">
+                {TARGET_SERVICES.map((svc) => {
+                  const isSelected = targetService === svc.id;
+                  return (
+                    <button
+                      key={svc.id}
+                      onClick={() => svc.available && setTargetService(svc.id)}
+                      disabled={!svc.available}
+                      className="relative flex flex-col items-center gap-1.5 py-3 px-2 rounded-xl text-xs font-medium transition-all"
+                      style={{
+                        background: isSelected ? 'rgba(99,102,241,0.15)' : 'var(--color-surface-2)',
+                        border: `1.5px solid ${isSelected ? 'var(--color-accent)' : 'transparent'}`,
+                        opacity: svc.available ? 1 : 0.45,
+                        cursor: svc.available ? 'pointer' : 'not-allowed',
+                      }}
+                    >
+                      <span className="text-xl">{svc.icon}</span>
+                      <span className="truncate w-full text-center">{svc.label}</span>
+                      {!svc.available && (
+                        <span className="absolute top-1.5 right-1.5 text-[9px] px-1 py-0.5 rounded font-bold"
+                          style={{ background: 'rgba(255,255,255,0.08)', color: 'var(--color-text-muted)' }}>
+                          준비 중
+                        </span>
+                      )}
+                      {svc.available && svc.hint && (
+                        <span className="text-[10px]" style={{ color: 'var(--color-text-muted)' }}>
+                          {svc.hint}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
