@@ -21,10 +21,9 @@ import html
 import sys
 from pathlib import Path
 
-# Windows 터미널 UTF-8 출력 강제
-if sys.platform == "win32":
-    sys.stdout.reconfigure(encoding="utf-8")
-    sys.stderr.reconfigure(encoding="utf-8")
+# UTF-8 출력 + 즉시 flush (Node.js child_process 스트리밍 지원)
+sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
+sys.stderr.reconfigure(encoding="utf-8", line_buffering=True)
 
 from ytmusicapi import YTMusic
 
@@ -73,7 +72,8 @@ def save_progress(progress: dict):
 
 def import_playlist(yt: YTMusic, playlist: dict, dry_run: bool, progress: dict):
     name = clean_text(playlist["name"])
-    songs = playlist["songs"]
+    # playlists.json 이 원본 Melon 포맷("songs") 또는 도메인 포맷("tracks") 모두 지원
+    songs = playlist.get("songs") or playlist.get("tracks", [])
     total = len(songs)
 
     print(f"\n{'='*60}")
@@ -162,8 +162,11 @@ def import_playlist(yt: YTMusic, playlist: dict, dry_run: bool, progress: dict):
 def main():
     parser = argparse.ArgumentParser(description="멜론 -> YouTube Music 플레이리스트 임포터")
     parser.add_argument("--playlist", help="특정 플레이리스트 이름만 처리")
+    parser.add_argument("--ids", help="쉼표로 구분된 플레이리스트 ID 목록만 처리 (웹 UI 전달용)")
     parser.add_argument("--dry-run", action="store_true", help="실제 추가 없이 검색만 테스트")
     args = parser.parse_args()
+
+    ids_filter: set[str] | None = set(args.ids.split(",")) if args.ids else None
 
     if not PLAYLISTS_JSON.exists():
         print(f"MISS {PLAYLISTS_JSON} 파일이 없습니다. 먼저 멜론 추출을 실행하세요.")
@@ -187,12 +190,15 @@ def main():
 
     print(f"총 {len(playlists)}개 플레이리스트 발견:")
     for p in playlists:
-        print(f"  - {clean_text(p['name'])}: {p['song_count']}곡")
+        songs = p.get("songs") or p.get("tracks", [])
+        print(f"  - {clean_text(p['name'])}: {p.get('song_count') or len(songs)}곡")
 
     progress = load_progress()
 
     for playlist in playlists:
         if args.playlist and clean_text(playlist["name"]) != args.playlist:
+            continue
+        if ids_filter and str(playlist.get("id", "")) not in ids_filter:
             continue
         import_playlist(yt, playlist, args.dry_run, progress)
 
