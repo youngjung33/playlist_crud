@@ -32,7 +32,8 @@ SCRIPT_DIR = Path(__file__).parent          # src/adapters/
 PROJECT_DIR = SCRIPT_DIR.parents[1]         # 프로젝트 루트 (src/adapters → src → 루트)
 PLAYLISTS_JSON = PROJECT_DIR / "playlists.json"
 AUTH_FILE = SCRIPT_DIR / "browser.json"
-PROGRESS_FILE = SCRIPT_DIR / "import_progress.json"
+DATA_DIR = PROJECT_DIR / "data"
+PROGRESS_FILE = DATA_DIR / "import_progress.json"
 
 # ─── 설정 ─────────────────────────────────────────────────────────────────────
 SEARCH_DELAY = 0.3
@@ -66,6 +67,7 @@ def load_progress() -> dict:
 
 
 def save_progress(progress: dict):
+    DATA_DIR.mkdir(exist_ok=True)
     with open(PROGRESS_FILE, "w", encoding="utf-8") as f:
         json.dump(progress, f, ensure_ascii=False, indent=2)
 

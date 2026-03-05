@@ -37,6 +37,10 @@ coverage/
 data/
 playlists.json
 
+# Python 어댑터 생성 파일 (인증 정보 + 이전 진행 상황)
+src/adapters/browser.json
+src/adapters/import_progress.json
+
 # Optional
 plan.md
 .cursor/rules/*

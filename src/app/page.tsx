@@ -291,7 +291,7 @@ export default function Home() {
               style={{ background: 'var(--color-accent)' }}>🎵</div>
             <span className="font-bold text-base">Playlist Transfer</span>
           </div>
-          <a href="https://github.com" target="_blank" rel="noopener noreferrer"
+          <a href="https://github.com/youngjung33/playlist_crud" target="_blank" rel="noopener noreferrer"
             className="text-xs hover:text-white transition-colors"
             style={{ color: 'var(--color-text-muted)' }}>GitHub</a>
         </div>
