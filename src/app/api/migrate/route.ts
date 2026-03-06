@@ -3,6 +3,7 @@ import { spawn } from 'child_process';
 import path from 'path';
 import { GetMyPlaylistsUseCase } from '../../../use-cases/GetMyPlaylists';
 import { FilePlaylistRepository } from '../../../adapters/FilePlaylistRepository';
+import { detectPython } from '../../../lib/python';
 
 export const maxDuration = 300;
 
@@ -47,12 +48,17 @@ export async function POST(req: NextRequest) {
     const encoder = new TextEncoder();
     const encode = (evt: SseEvent) => encoder.encode(`data: ${JSON.stringify(evt)}\n\n`);
 
-    const [pyExec, pyPrefixArgs]: [string, string[]] =
-      process.platform === 'win32' ? ['py', ['-3']] : ['python3', []];
+    const py = detectPython();
+    if (!py) {
+      return NextResponse.json(
+        { error: 'Python이 설치되어 있지 않습니다. Python 3를 설치한 후 다시 시도하세요.' },
+        { status: 500 },
+      );
+    }
 
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
-        const child = spawn(pyExec, [...pyPrefixArgs, scriptPath, '--ids', playlistIds.join(',')], {
+        const child = spawn(py.exec, [...py.prefixArgs, scriptPath, '--ids', playlistIds.join(',')], {
           cwd: process.cwd(),
           env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONIOENCODING: 'utf-8' },
         });
@@ -78,7 +84,7 @@ export async function POST(req: NextRequest) {
           controller.enqueue(
             encode({
               type: 'error',
-              message: `Python 실행 오류: ${err.message}\n"py -3 --version" 으로 Python 설치를 확인하세요.`,
+              message: `Python 실행 오류: ${err.message}\nPython 3 설치 여부를 확인하세요.`,
             }),
           );
           controller.enqueue(encode({ type: 'done', code: 1, success: false }));

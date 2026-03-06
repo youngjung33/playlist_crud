@@ -239,6 +239,7 @@ export default function Home() {
       const reader = res.body!.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
+      let gotDone = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -255,6 +256,7 @@ export default function Home() {
             if (evt.type === 'log') addLog(evt.message);
             else if (evt.type === 'error') addLog(evt.message, true);
             else if (evt.type === 'done') {
+              gotDone = true;
               if (evt.success) {
                 setMigrateState('done');
                 setMigrateMessage('이전이 완료되었습니다.');
@@ -265,6 +267,12 @@ export default function Home() {
             }
           } catch { /* JSON parse error */ }
         }
+      }
+
+      // 연결이 끊겼는데 done 이벤트가 안 왔으면 (재시작·타임아웃 등) loading 탈출
+      if (!gotDone) {
+        setMigrateState('error');
+        setMigrateMessage('연결이 끊겼습니다. 페이지를 새로고침하고 다시 시도하세요.');
       }
     } catch (e) {
       setMigrateState('error');

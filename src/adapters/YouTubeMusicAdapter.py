@@ -113,7 +113,8 @@ def import_playlist(yt: YTMusic, playlist: dict, dry_run: bool, progress: dict):
         save_progress(progress)
         print(f"  생성 완료: {yt_playlist_id}")
 
-    found_ids = []
+    # (index, video_id) 쌍으로 저장 — MISS 곡이 있어도 실제 추가된 인덱스만 done_indices에 반영
+    found_pairs: list[tuple[int, str]] = []
     not_found = []
 
     for i, song in enumerate(songs):
@@ -126,27 +127,32 @@ def import_playlist(yt: YTMusic, playlist: dict, dry_run: bool, progress: dict):
         time.sleep(SEARCH_DELAY)
 
         if video_id:
-            found_ids.append(video_id)
+            found_pairs.append((i, video_id))
             print(f"  [{i+1}/{total}] OK {title} - {artist}")
         else:
             not_found.append({"index": i, "title": title, "artist": artist})
             print(f"  [{i+1}/{total}] MISS {title} - {artist}")
 
-        if len(found_ids) >= BATCH_SIZE:
-            yt.add_playlist_items(yt_playlist_id, found_ids, duplicates=False)
-            done_indices.update(range(i - len(found_ids) + 1, i + 1))
+        if len(found_pairs) >= BATCH_SIZE:
+            video_ids = [v for _, v in found_pairs]
+            yt.add_playlist_items(yt_playlist_id, video_ids, duplicates=False)
+            done_indices.update(idx for idx, _ in found_pairs)
             pl_progress["done_indices"] = list(done_indices)
             save_progress(progress)
-            print(f"  -> {len(found_ids)}곡 추가 완료 (누적 {len(done_indices)}곡)")
-            found_ids = []
+            print(f"  -> {len(found_pairs)}곡 추가 완료 (누적 {len(done_indices)}곡)")
+            found_pairs = []
             time.sleep(ADD_DELAY)
 
-    if found_ids:
-        yt.add_playlist_items(yt_playlist_id, found_ids, duplicates=False)
-        print(f"  -> 나머지 {len(found_ids)}곡 추가 완료")
+    if found_pairs:
+        video_ids = [v for _, v in found_pairs]
+        yt.add_playlist_items(yt_playlist_id, video_ids, duplicates=False)
+        done_indices.update(idx for idx, _ in found_pairs)
+        pl_progress["done_indices"] = list(done_indices)
+        print(f"  -> 나머지 {len(found_pairs)}곡 추가 완료")
         time.sleep(ADD_DELAY)
 
     pl_progress["done"] = True
+    pl_progress["done_indices"] = list(done_indices)
     pl_progress["not_found"] = not_found
     progress[playlist["id"]] = pl_progress
     save_progress(progress)

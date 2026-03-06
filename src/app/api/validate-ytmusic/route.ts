@@ -2,23 +2,7 @@ import { NextResponse } from 'next/server';
 import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
-
-function detectPython(): { cmd: string; exec: string; prefixArgs: string[] } | null {
-  const candidates: [string, string[]][] =
-    process.platform === 'win32'
-      ? [['py', ['-3']], ['python', []], ['python3', []]]
-      : [['python3', []], ['python', []]];
-
-  for (const [exec, prefixArgs] of candidates) {
-    try {
-      execSync(`${exec} --version`, { stdio: 'pipe' });
-      return { cmd: `${exec} ${prefixArgs.join(' ')}`.trim(), exec, prefixArgs };
-    } catch {
-      /* try next */
-    }
-  }
-  return null;
-}
+import { detectPython } from '../../../lib/python';
 
 export async function GET() {
   // 1) Python 설치 확인
