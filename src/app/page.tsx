@@ -54,6 +54,9 @@ export default function Home() {
   // Step 1 — 멜론 추출
   const [fetchState, setFetchState] = useState<AsyncState>('idle');
   const [fetchMessage, setFetchMessage] = useState('');
+  const [melonList, setMelonList] = useState<PlaylistSummary[] | null>(null);
+  const [listLoadState, setListLoadState] = useState<AsyncState>('idle');
+  const [extractSelected, setExtractSelected] = useState<Set<string>>(new Set());
 
   // Step 1 — 파일 업로드
   const [uploadState, setUploadState] = useState<AsyncState>('idle');
@@ -149,13 +152,56 @@ export default function Home() {
     setSelected(new Set());
   }
 
+  // ── 멜론 목록만 가져오기 (선택 UI용) ───────────────────────────
+  async function loadMelonList() {
+    setListLoadState('loading');
+    try {
+      const res = await fetch('/api/fetch/list');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setMelonList(data.playlists ?? []);
+      setListLoadState('done');
+      setExtractSelected(new Set());
+    } catch (e) {
+      setListLoadState('error');
+    }
+  }
+
+  function toggleExtractSelect(id: string) {
+    setExtractSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  function toggleExtractAll() {
+    if (!melonList?.length) return;
+    setExtractSelected((prev) =>
+      prev.size === melonList.length ? new Set() : new Set(melonList.map((p) => p.id))
+    );
+  }
+
   // ── 멜론 추출 ─────────────────────────────────────────────────
   async function handleFetch() {
     setFetchState('loading');
     setFetchMessage('');
-    setUploadState('idle'); // 다른 경로 초기화
+    setUploadState('idle');
     try {
-      const res = await fetch('/api/fetch', { method: 'POST' });
+      const body: { playlistIds?: string[] } =
+        melonList && melonList.length > 0
+          ? {
+              playlistIds:
+                extractSelected.size > 0
+                  ? Array.from(extractSelected)
+                  : melonList.map((p) => p.id),
+            }
+          : {};
+      const res = await fetch('/api/fetch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: Object.keys(body).length ? JSON.stringify(body) : undefined,
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       setFetchState('done');
@@ -440,6 +486,50 @@ export default function Home() {
                 </p>
               )}
 
+              {/* Melon: 플레이리스트 목록 가져오기 + 선택 */}
+              {sourceService === 'melon' && validateState === 'valid' && (
+                <>
+                  <button
+                    onClick={loadMelonList}
+                    disabled={listLoadState === 'loading'}
+                    className="w-full py-2 rounded-xl text-sm font-medium transition-all"
+                    style={{
+                      background: listLoadState === 'loading' ? 'var(--color-surface-2)' : 'var(--color-surface-2)',
+                      border: '1px solid var(--color-border)',
+                      cursor: listLoadState === 'loading' ? 'not-allowed' : 'pointer',
+                    }}>
+                    {listLoadState === 'loading'
+                      ? <span className="flex items-center justify-center gap-2">
+                          <span className="w-3 h-3 rounded-full border-2 border-t-transparent animate-spin inline-block" style={{ borderColor: 'currentColor', borderTopColor: 'transparent' }} />
+                          목록 가져오는 중...
+                        </span>
+                      : melonList ? `멜론 플레이리스트 ${melonList.length}개 로드됨 (아래에서 선택)` : '플레이리스트 목록 가져오기'}
+                  </button>
+                  {melonList && melonList.length > 0 && (
+                    <div className="rounded-xl p-3 space-y-2 max-h-48 overflow-y-auto" style={{ background: 'var(--color-surface-2)' }}>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-medium" style={{ color: 'var(--color-text-muted)' }}>추출할 플레이리스트 선택</span>
+                        <button type="button" onClick={toggleExtractAll} className="text-xs" style={{ color: 'var(--color-accent)' }}>
+                          {extractSelected.size === melonList.length ? '전체 해제' : '전체 선택'}
+                        </button>
+                      </div>
+                      <div className="space-y-1.5">
+                        {melonList.map((pl) => {
+                          const isSel = extractSelected.has(pl.id);
+                          return (
+                            <label key={pl.id} className="flex items-center gap-3 p-2 rounded-lg cursor-pointer" style={{ background: isSel ? 'rgba(99,102,241,0.12)' : 'transparent' }}>
+                              <input type="checkbox" checked={isSel} onChange={() => toggleExtractSelect(pl.id)} className="rounded" />
+                              <span className="flex-1 text-sm truncate">{pl.name}</span>
+                              <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{pl.song_count}곡</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+
               {/* 추출 버튼 — 인증 완료 시에만 활성화 */}
               <button
                 onClick={handleFetch}
@@ -460,7 +550,13 @@ export default function Home() {
                     </span>
                   : validateState !== 'valid'
                     ? '🔒 인증 확인 후 추출 가능'
-                    : fetchState === 'done' ? '다시 추출하기' : '추출 시작'}
+                    : fetchState === 'done'
+                      ? '다시 추출하기'
+                      : melonList && melonList.length > 0
+                        ? (extractSelected.size === 0 || extractSelected.size === melonList.length
+                            ? `전체 ${melonList.length}개 추출`
+                            : `선택한 ${extractSelected.size}개 추출`)
+                        : '전체 추출 시작'}
               </button>
               {fetchState === 'error' && (
                 <p className="text-xs px-3 py-2 rounded-lg" style={{ background: 'rgba(239,68,68,0.1)', color: '#f87171' }}>

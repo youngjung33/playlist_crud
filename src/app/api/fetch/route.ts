@@ -1,11 +1,11 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { MelonAdapter } from '../../../adapters/MelonAdapter';
 import { FilePlaylistRepository } from '../../../adapters/FilePlaylistRepository';
 
 // 멜론 추출은 시간이 오래 걸릴 수 있어 타임아웃을 넉넉히 설정
 export const maxDuration = 300;
 
-export async function POST() {
+export async function POST(req: NextRequest) {
   const cookie = process.env.MELON_COOKIE;
   const memberKey = process.env.MELON_MEMBER_KEY;
 
@@ -16,9 +16,19 @@ export async function POST() {
     );
   }
 
+  let playlistIds: string[] | undefined;
+  try {
+    const body = await req.json().catch(() => ({}));
+    if (Array.isArray(body.playlistIds) && body.playlistIds.length > 0) {
+      playlistIds = body.playlistIds;
+    }
+  } catch {
+    /* body 없으면 전체 추출 */
+  }
+
   try {
     const adapter = new MelonAdapter({ cookie, memberKey });
-    const playlists = await adapter.fetchAll();
+    const playlists = await adapter.fetchAll(playlistIds);
 
     const repo = new FilePlaylistRepository();
     await repo.save(playlists);

@@ -47,11 +47,24 @@ export class MelonAdapter implements IPlaylistSource {
     this.pageSize = config.pageSize ?? 50;
   }
 
-  async fetchAll(): Promise<Playlist[]> {
+  /**
+   * 곡 목록 없이 플레이리스트 목록만 가져온다. (선택 UI용)
+   */
+  async fetchPlaylistListOnly(): Promise<Array<{ id: string; name: string; song_count: number }>> {
+    return this.fetchRawPlaylistList();
+  }
+
+  /**
+   * 플레이리스트 전체(또는 playlistIds 지정 시 해당만) 곡 목록까지 가져온다.
+   * @param playlistIds 없거나 빈 배열이면 전체, 있으면 해당 id만
+   */
+  async fetchAll(playlistIds?: string[]): Promise<Playlist[]> {
     const rawPlaylists = await this.fetchRawPlaylistList();
+    const toFetch =
+      playlistIds?.length ? rawPlaylists.filter((p) => playlistIds.includes(p.id)) : rawPlaylists;
     const result: Playlist[] = [];
 
-    for (const raw of rawPlaylists) {
+    for (const raw of toFetch) {
       const songs = await this.fetchRawSongs(raw.id, raw.song_count);
       const tracks = songs.map((s, i) =>
         createTrack({
