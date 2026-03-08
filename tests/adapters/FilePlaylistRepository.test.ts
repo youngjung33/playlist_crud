@@ -31,7 +31,7 @@ describe('FilePlaylistRepository', () => {
         },
       ]);
       mockFs.existsSync.mockReturnValue(true);
-      mockFs.readFileSync.mockReturnValue(data as unknown as Buffer);
+      mockFs.readFileSync.mockReturnValue(data);
 
       const result = await makeRepo().findAll();
 
@@ -55,7 +55,7 @@ describe('FilePlaylistRepository', () => {
         },
       ]);
       mockFs.existsSync.mockReturnValue(true);
-      mockFs.readFileSync.mockReturnValue(data as unknown as Buffer);
+      mockFs.readFileSync.mockReturnValue(data);
 
       const result = await makeRepo().findAll();
 
@@ -73,7 +73,7 @@ describe('FilePlaylistRepository', () => {
         },
       ]);
       mockFs.existsSync.mockReturnValue(true);
-      mockFs.readFileSync.mockReturnValue(data as unknown as Buffer);
+      mockFs.readFileSync.mockReturnValue(data);
 
       const result = await makeRepo().findAll();
       expect(result[0].tracks[0].album).toBeNull();
@@ -86,7 +86,7 @@ describe('FilePlaylistRepository', () => {
         { id: 'c', name: 'C', tracks: [] },
       ]);
       mockFs.existsSync.mockReturnValue(true);
-      mockFs.readFileSync.mockReturnValue(data as unknown as Buffer);
+      mockFs.readFileSync.mockReturnValue(data);
 
       const result = await makeRepo().findAll();
       expect(result).toHaveLength(3);

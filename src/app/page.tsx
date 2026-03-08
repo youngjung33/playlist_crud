@@ -56,6 +56,7 @@ export default function Home() {
   const [fetchMessage, setFetchMessage] = useState('');
   const [melonList, setMelonList] = useState<PlaylistSummary[] | null>(null);
   const [listLoadState, setListLoadState] = useState<AsyncState>('idle');
+  const [listLoadMessage, setListLoadMessage] = useState('');
   const [extractSelected, setExtractSelected] = useState<Set<string>>(new Set());
 
   // Step 1 — 파일 업로드
@@ -155,15 +156,17 @@ export default function Home() {
   // ── 멜론 목록만 가져오기 (선택 UI용) ───────────────────────────
   async function loadMelonList() {
     setListLoadState('loading');
+    setListLoadMessage('');
     try {
       const res = await fetch('/api/fetch/list');
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      if (!res.ok) throw new Error(data.error ?? '목록을 가져오지 못했습니다.');
       setMelonList(data.playlists ?? []);
       setListLoadState('done');
       setExtractSelected(new Set());
     } catch (e) {
       setListLoadState('error');
+      setListLoadMessage(e instanceof Error ? e.message : '목록을 가져오는 중 오류가 발생했습니다.');
     }
   }
 
@@ -275,10 +278,21 @@ export default function Home() {
         }),
       });
 
-      // 일반 JSON 오류 응답 처리
+      // 일반 오류 응답 처리 (JSON이 아닌 HTML 500 등도 처리)
       if (!res.ok || !res.headers.get('content-type')?.includes('text/event-stream')) {
-        const data = await res.json();
-        throw new Error(data.error ?? '이전 요청 실패');
+        const contentType = res.headers.get('content-type') ?? '';
+        let errMsg = '이전 요청 실패';
+        if (contentType.includes('application/json')) {
+          try {
+            const data = await res.json();
+            errMsg = data.error ?? errMsg;
+          } catch {
+            errMsg = `서버 오류 (${res.status})`;
+          }
+        } else {
+          errMsg = `서버 오류 (${res.status}). 잠시 후 다시 시도하세요.`;
+        }
+        throw new Error(errMsg);
       }
 
       // SSE 스트림 수신
@@ -505,6 +519,11 @@ export default function Home() {
                         </span>
                       : melonList ? `멜론 플레이리스트 ${melonList.length}개 로드됨 (아래에서 선택)` : '플레이리스트 목록 가져오기'}
                   </button>
+                  {listLoadState === 'error' && listLoadMessage && (
+                    <p className="text-xs px-3 py-2 rounded-lg" style={{ background: 'rgba(239,68,68,0.08)', color: '#f87171' }}>
+                      ⚠️ {listLoadMessage}
+                    </p>
+                  )}
                   {melonList && melonList.length > 0 && (
                     <div className="rounded-xl p-3 space-y-2 max-h-48 overflow-y-auto" style={{ background: 'var(--color-surface-2)' }}>
                       <div className="flex items-center justify-between">

@@ -103,15 +103,20 @@ def import_playlist(yt: YTMusic, playlist: dict, dry_run: bool, progress: dict):
 
     if not yt_playlist_id:
         print(f"  YouTube Music에 플레이리스트 생성 중...")
-        yt_playlist_id = yt.create_playlist(
-            title=name,
-            description=f"멜론에서 가져온 플레이리스트 ({total}곡)",
-            privacy_status="PRIVATE",
-        )
-        pl_progress["yt_playlist_id"] = yt_playlist_id
-        progress[playlist["id"]] = pl_progress
-        save_progress(progress)
-        print(f"  생성 완료: {yt_playlist_id}")
+        try:
+            yt_playlist_id = yt.create_playlist(
+                title=name,
+                description=f"멜론에서 가져온 플레이리스트 ({total}곡)",
+                privacy_status="PRIVATE",
+            )
+            pl_progress["yt_playlist_id"] = yt_playlist_id
+            progress[playlist["id"]] = pl_progress
+            save_progress(progress)
+            print(f"  생성 완료: {yt_playlist_id}")
+        except Exception as e:
+            print(f"  오류 (플레이리스트 생성 실패): {e}")
+            save_progress(progress)
+            raise
 
     # (index, video_id) 쌍으로 저장 — MISS 곡이 있어도 실제 추가된 인덱스만 done_indices에 반영
     found_pairs: list[tuple[int, str]] = []
@@ -135,20 +140,30 @@ def import_playlist(yt: YTMusic, playlist: dict, dry_run: bool, progress: dict):
 
         if len(found_pairs) >= BATCH_SIZE:
             video_ids = [v for _, v in found_pairs]
-            yt.add_playlist_items(yt_playlist_id, video_ids, duplicates=False)
-            done_indices.update(idx for idx, _ in found_pairs)
-            pl_progress["done_indices"] = list(done_indices)
-            save_progress(progress)
-            print(f"  -> {len(found_pairs)}곡 추가 완료 (누적 {len(done_indices)}곡)")
+            try:
+                yt.add_playlist_items(yt_playlist_id, video_ids, duplicates=False)
+                done_indices.update(idx for idx, _ in found_pairs)
+                pl_progress["done_indices"] = list(done_indices)
+                save_progress(progress)
+                print(f"  -> {len(found_pairs)}곡 추가 완료 (누적 {len(done_indices)}곡)")
+            except Exception as e:
+                print(f"  오류 (곡 추가 실패): {e}")
+                save_progress(progress)
+                raise
             found_pairs = []
             time.sleep(ADD_DELAY)
 
     if found_pairs:
         video_ids = [v for _, v in found_pairs]
-        yt.add_playlist_items(yt_playlist_id, video_ids, duplicates=False)
-        done_indices.update(idx for idx, _ in found_pairs)
-        pl_progress["done_indices"] = list(done_indices)
-        print(f"  -> 나머지 {len(found_pairs)}곡 추가 완료")
+        try:
+            yt.add_playlist_items(yt_playlist_id, video_ids, duplicates=False)
+            done_indices.update(idx for idx, _ in found_pairs)
+            pl_progress["done_indices"] = list(done_indices)
+            print(f"  -> 나머지 {len(found_pairs)}곡 추가 완료")
+        except Exception as e:
+            print(f"  오류 (곡 추가 실패): {e}")
+            save_progress(progress)
+            raise
         time.sleep(ADD_DELAY)
 
     pl_progress["done"] = True
