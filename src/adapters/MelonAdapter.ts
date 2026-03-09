@@ -87,11 +87,14 @@ export class MelonAdapter implements IPlaylistSource {
     return result;
   }
 
+  private static readonly FETCH_TIMEOUT_MS = 20_000;
+
   private async fetchHtml(url: string, params: Record<string, string | number> = {}): Promise<string> {
     const u = new URL(url);
     Object.entries(params).forEach(([k, v]) => u.searchParams.set(k, String(v)));
     const res = await fetch(u.toString(), {
       headers: { ...DEFAULT_HEADERS, Cookie: this.cookie },
+      signal: AbortSignal.timeout(MelonAdapter.FETCH_TIMEOUT_MS),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${u.toString()}`);
     return res.text();
