@@ -868,6 +868,8 @@ export default function Home() {
                   ? '🔒 인증 확인 후 이전 가능'
                   : selected.size === 0
                   ? '플레이리스트를 선택하세요'
+                  : migrateState === 'error'
+                  ? '다시 시도'
                   : '이전 시작 →';
               return (
                 <div className="flex items-center justify-between py-1">

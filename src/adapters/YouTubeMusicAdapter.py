@@ -39,6 +39,7 @@ PROGRESS_FILE = DATA_DIR / "import_progress.json"
 SEARCH_DELAY = 0.3
 ADD_DELAY = 0.5
 BATCH_SIZE = 50
+MAX_SEARCH_RETRIES = 3
 
 
 def clean_text(text: str) -> str:
@@ -47,15 +48,26 @@ def clean_text(text: str) -> str:
 
 def search_song(yt: YTMusic, title: str, artist: str) -> str | None:
     query = f"{title} {artist}"
-    try:
-        results = yt.search(query, filter="songs", limit=3)
-        if results:
-            return results[0]["videoId"]
-        results = yt.search(query, filter="videos", limit=3)
-        if results:
-            return results[0]["videoId"]
-    except Exception as e:
-        print(f"    검색 오류 ({title}): {e}")
+    for attempt in range(MAX_SEARCH_RETRIES):
+        try:
+            results = yt.search(query, filter="songs", limit=3)
+            if results:
+                return results[0]["videoId"]
+            results = yt.search(query, filter="videos", limit=3)
+            if results:
+                return results[0]["videoId"]
+            return None
+        except Exception as e:
+            msg = str(e).lower()
+            # 간단한 rate limit 감지: 429 코드나 too many requests 문구
+            if "429" in msg or "too many requests" in msg:
+                backoff = SEARCH_DELAY * (2 ** attempt)
+                print(f"    rate limit 감지, {backoff:.1f}s 후 재시도 ({title})")
+                time.sleep(backoff)
+                continue
+            print(f"    검색 오류 ({title}): {e}")
+            return None
+    print(f"    검색 실패 (재시도 초과): {title}")
     return None
 
 
