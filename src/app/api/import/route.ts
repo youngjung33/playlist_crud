@@ -5,6 +5,8 @@ import path from 'path';
 import { createPlaylist } from '../../../domain/entities/Playlist';
 import { FilePlaylistRepository } from '../../../adapters/FilePlaylistRepository';
 
+const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
+
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
@@ -15,6 +17,12 @@ export async function POST(req: NextRequest) {
     }
 
     const buf = Buffer.from(await file.arrayBuffer());
+    if (buf.length > MAX_FILE_SIZE_BYTES) {
+      return NextResponse.json(
+        { error: `파일 크기는 ${MAX_FILE_SIZE_BYTES / 1024 / 1024}MB 이하여야 합니다.` },
+        { status: 413 }
+      );
+    }
     const fileName = file.name.toLowerCase();
     const repo = new FilePlaylistRepository();
 
